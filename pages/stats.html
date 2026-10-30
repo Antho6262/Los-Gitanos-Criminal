@@ -77,7 +77,7 @@ let RAW = { membres: {}, actionsDispo: {}, semaines: {}, actionsParSemaine: {}, 
 function recalcDerived() {
   const visi = RAW.visi;
   const gradesMasques = new Set(Object.keys(visi).filter(g => visi[g] && visi[g].stats === false));
-  MEMBRES = entries(RAW.membres).map(([id, m]) => ({ id, ...m })).filter(m => m.actif !== false && !gradesMasques.has(m.grade));
+  MEMBRES = entries(RAW.membres).map(([id, m]) => ({ id, ...m })).filter(m => (m.actif !== false && !m.invisible) && !gradesMasques.has(m.grade));
   const membresMasquesIds = new Set(entries(RAW.membres).filter(([, m]) => gradesMasques.has(m.grade)).map(([id]) => id));
   ACTIONS_DISPO = RAW.actionsDispo;
   SEMAINES = entries(RAW.semaines).map(([id, s]) => ({ id, ...s })).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));

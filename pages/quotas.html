@@ -65,7 +65,7 @@ function onActionsChange(snap) {
 
 function renderDerived() {
   const gradesMasques = new Set(Object.keys(DATA.visi).filter(g => DATA.visi[g] && DATA.visi[g].quotas === false));
-  const membres = entries(DATA.membres).map(([id, m]) => ({ id, ...m })).filter(m => m.actif !== false && !gradesMasques.has(m.grade));
+  const membres = entries(DATA.membres).map(([id, m]) => ({ id, ...m })).filter(m => (m.actif !== false && !m.invisible) && !gradesMasques.has(m.grade));
   const actions = entries(DATA.actions).map(([id, a]) => a);
 
   document.getElementById("tblQuotas").innerHTML = membres.length ? membres.map(m => {

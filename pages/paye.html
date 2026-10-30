@@ -85,7 +85,7 @@ function renderPaye() {
   const tauxGrades = RAW.tauxGrades;
   const visi = RAW.visi;
   const gradesMasques = new Set(Object.keys(visi).filter(g => visi[g] && visi[g].paye === false));
-  const membres = entries(RAW.membres).map(([id, m]) => ({ id, ...m })).filter(m => m.actif !== false && !gradesMasques.has(m.grade));
+  const membres = entries(RAW.membres).map(([id, m]) => ({ id, ...m })).filter(m => (m.actif !== false && !m.invisible) && !gradesMasques.has(m.grade));
   const actions = entries(RAW.actions).map(([id, a]) => a);
   const actionsDispo = RAW.actionsDispo;
   const payes = RAW.payes;

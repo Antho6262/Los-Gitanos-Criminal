@@ -32,7 +32,13 @@ function renderContent() {
         <thead><tr><th>Braquage</th><th>Statut</th><th>Se libère le</th></tr></thead>
         <tbody id="cooldownBody"></tbody>
       </table>
-      <p class="small muted mt8">2 braquages maximum par semaine glissante : chacun se libère exactement 7 jours après son enregistrement (réussite ou échec).</p>
+      <p class="small muted mt8">Compteur partagé par tout le groupe : chaque braquage se libère exactement 7 jours après son enregistrement (réussite ou échec).</p>
+    </div>
+
+    <div class="panel">
+      <div class="panel-head"><h2>⏱️ Cooldown par personne</h2></div>
+      <div style="overflow-x:auto;"><table id="cdPersonne"></table></div>
+      <p class="small muted mt8">Chacun a son propre compteur. 🔔 = alerte automatique quand la personne peut recommencer (tant que le site est ouvert).</p>
     </div>
 
     <div class="panel">
@@ -99,7 +105,7 @@ function renderCooldown() {
     if (f) lignes.push([emo + " " + nom, f[0], f[1]]);
     else lignes.push([emo + " " + nom, null, null]);
   });
-  defs.filter(([, a]) => !BRAQUAGES.some(([n]) => n === a.nom) && cooldownConfig(a)).forEach(([id, a]) => lignes.push(["⏱️ " + a.nom, id, a]));
+  defs.filter(([, a]) => !BRAQUAGES.some(([n]) => n === a.nom) && (cooldownConfig(a) || {}).par === "groupe").forEach(([id, a]) => lignes.push(["⏱️ " + a.nom, id, a]));
 
   body.innerHTML = lignes.map(([label, id, act]) => {
     if (!id) return `<tr><td>${label}</td><td colspan="2" class="muted small">action à créer dans Admin → Actions</td></tr>`;
@@ -112,6 +118,22 @@ function renderCooldown() {
       : "—";
     return `<tr><td>${label}</td><td>${statut}</td><td style="font-size:12px;">${libs}</td></tr>`;
   }).join("");
+}
+
+/* ---------- cooldown par personne : une ligne par membre, une colonne par action ---------- */
+function renderCooldownPersonne() {
+  const tbl = document.getElementById("cdPersonne");
+  if (!tbl) return;
+  const acts = entries(DATA.actionsDispo).filter(([, a]) => (cooldownConfig(a) || {}).par === "personne");
+  const membres = entries(DATA.membres).map(([id, m]) => ({ id, ...m })).filter(m => m.actif !== false && !m.invisible);
+  if (!acts.length) { tbl.innerHTML = '<tbody><tr class="empty-row"><td>Aucune action avec cooldown par personne (ATM, Supérette, Go Fast, Conteneur, Cambu : Admin → Actions → Importer).</td></tr></tbody>'; return; }
+  tbl.innerHTML = `<thead><tr><th>Membre</th>${acts.map(([, a]) => { const c = cooldownConfig(a); return `<th>${esc(a.nom)}${c.alerte ? " 🔔" : ""}<div class="muted" style="text-transform:none;letter-spacing:0;font-weight:400;">${c.max}/${fmtPeriode(c)}</div></th>`; }).join("")}</tr></thead>
+    <tbody>${membres.map(m => `<tr${m.id === SESSION.id ? ' style="background:rgba(var(--accent-rgb),0.06);"' : ""}><td>${esc(m.prenom)} ${esc(m.nom || "")}</td>${acts.map(([id, a]) => {
+      const et = cooldownEtat(id, a, DATA.arbre, m.id);
+      return et.libres > 0
+        ? `<td style="color:var(--success);">✅${et.max > 1 ? " " + et.libres + "/" + et.max : ""}</td>`
+        : `<td style="color:var(--danger);white-space:nowrap;">⏳ ${fmtReste(et.prochain - Date.now()).replace(/ \d+s$/, "")}</td>`;
+    }).join("")}</tr>`).join("") || '<tr class="empty-row"><td colspan="9">Aucun membre.</td></tr>'}</tbody>`;
 }
 
 /* ---------- calculs de la semaine affichée ---------- */
@@ -210,16 +232,16 @@ function renderTout() {
 
   const suivre = (chemin, cle, apres) => db.ref(chemin).on("value", snap => { DATA[cle] = snap.val() || {}; apres(); });
   suivre("semaines", "semaines", renderTout);
-  suivre("membres", "membres", renderTout);
-  suivre("actions_dispo", "actionsDispo", () => { renderTout(); renderCooldown(); });
+  suivre("membres", "membres", () => { renderTout(); renderCooldownPersonne(); });
+  suivre("actions_dispo", "actionsDispo", () => { renderTout(); renderCooldown(); renderCooldownPersonne(); });
   suivre("stock", "stock", renderTout);
   suivre("quotas_categorie", "quotasCategorie", renderTout);
   suivre("transactions", "transactions", renderTout);
   suivre("pochons", "pochons", renderTout);
-  suivre("actions", "arbre", () => { renderTout(); renderCooldown(); });
+  suivre("actions", "arbre", () => { renderTout(); renderCooldown(); renderCooldownPersonne(); });
   suivre("argent/sale", "sale", renderTout);
   suivre("argent/propre", "propre", renderTout);
-  setInterval(renderCooldown, 1000);
+  setInterval(() => { renderCooldown(); renderCooldownPersonne(); }, 1000);
 
   db.ref("events_drogue").on("value", snap => {
     const now = Date.now();

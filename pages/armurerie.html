@@ -73,7 +73,7 @@ function renderMembresSelect() {
   const prevValue = sel.value;
   sel.innerHTML = "";
   entries(MEMBRES).forEach(([id, m]) => {
-    if (m.actif === false) return;
+    if (m.actif === false || m.invisible) return;
     sel.appendChild(new Option(m.prenom + (m.nom ? " " + m.nom : ""), id, id === SESSION.id, id === (prevValue || SESSION.id)));
   });
 }

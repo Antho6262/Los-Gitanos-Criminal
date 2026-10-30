@@ -80,7 +80,7 @@ function renderMembresSelect() {
   const sel = document.getElementById("xMembre");
   const prev = sel.value;
   sel.innerHTML = "";
-  entries(MEMBRES).forEach(([id, m]) => { if (m.actif !== false) sel.appendChild(new Option(m.prenom, id, id === SESSION.id, id === (prev || SESSION.id))); });
+  entries(MEMBRES).forEach(([id, m]) => { if ((m.actif !== false && !m.invisible)) sel.appendChild(new Option(m.prenom, id, id === SESSION.id, id === (prev || SESSION.id))); });
 }
 
 async function ajouterTaxe() {

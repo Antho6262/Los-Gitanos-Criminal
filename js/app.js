@@ -99,6 +99,7 @@ async function initShell(activePage, pageTitle) {
         <div class="sidebar-foot">
           <div class="who"><b>${session.prenom} ${session.nom || ""}</b><span class="grade">${session.grade || ""}</span></div>
           <div id="rtStatus" class="small muted" style="margin:6px 0;">🔄 Connexion…</div>
+          <div id="notifBtn" class="logout-link" style="display:none;color:var(--accent);" onclick="activerNotifs()">🔔 Activer les alertes</div>
           <span class="logout-link" onclick="logout()">Se déconnecter</span>
         </div>
       </aside>
@@ -113,6 +114,8 @@ async function initShell(activePage, pageTitle) {
   `;
   document.getElementById("shell").outerHTML = shellHtml;
 
+  demarrerAlertesCooldown(session);
+
   // Indicateur temps réel : reflète l'état réel de la connexion Firebase
   // (se met à jour tout seul si la connexion tombe ou revient).
   db.ref(".info/connected").on("value", snap => {
@@ -122,4 +125,74 @@ async function initShell(activePage, pageTitle) {
   });
 
   return session;
+}
+
+
+/* ============================================================
+   ALERTES COOLDOWN (par personne)
+   Pour chaque action dont l'alerte est activée (Admin → Actions → 🔔), le membre connecté est prévenu
+   dès qu'il peut recommencer : bandeau en haut de page + son + notification du navigateur.
+   Fonctionne tant que le site est ouvert dans un onglet (rien ne peut s'envoyer site fermé).
+   ============================================================ */
+function activerNotifs() {
+  if (!("Notification" in window)) return;
+  Notification.requestPermission().then(() => majBoutonNotifs());
+}
+function majBoutonNotifs() {
+  const b = document.getElementById("notifBtn");
+  if (b) b.style.display = ("Notification" in window && Notification.permission === "default") ? "block" : "none";
+}
+function bipAlerte() {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    [0, 0.18].forEach(d => {
+      const o = ctx.createOscillator(), g = ctx.createGain();
+      o.type = "sine"; o.frequency.value = d ? 1175 : 880; o.connect(g); g.connect(ctx.destination);
+      g.gain.setValueAtTime(0.0001, ctx.currentTime + d); g.gain.exponentialRampToValueAtTime(0.25, ctx.currentTime + d + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + d + 0.16);
+      o.start(ctx.currentTime + d); o.stop(ctx.currentTime + d + 0.18);
+    });
+  } catch (e) {}
+}
+function afficherAlerte(texte) {
+  let wrap = document.getElementById("lgcAlertes");
+  if (!wrap) {
+    wrap = document.createElement("div");
+    wrap.id = "lgcAlertes";
+    wrap.style.cssText = "position:fixed;top:14px;left:50%;transform:translateX(-50%);z-index:1000;display:flex;flex-direction:column;gap:8px;max-width:92vw;";
+    document.body.appendChild(wrap);
+  }
+  const el = document.createElement("div");
+  el.style.cssText = "background:var(--bg-1);border:2px solid var(--accent);border-radius:10px;padding:12px 18px;box-shadow:0 12px 40px rgba(0,0,0,.7),0 0 30px -6px var(--accent);display:flex;gap:14px;align-items:center;font-weight:600;";
+  el.innerHTML = `<span>🔔 ${texte}</span><span style="cursor:pointer;opacity:.7;" title="Fermer">✕</span>`;
+  el.lastChild.onclick = () => el.remove();
+  wrap.appendChild(el);
+  setTimeout(() => el.remove(), 60000);
+  bipAlerte();
+  try { if ("Notification" in window && Notification.permission === "granted") new Notification("Los Gitanos Criminal", { body: texte }); } catch (e) {}
+}
+function demarrerAlertesCooldown(session) {
+  majBoutonNotifs();
+  let defs = {}, arbre = {};
+  const verifier = () => {
+    const now = Date.now();
+    entries(defs).forEach(([id, act]) => {
+      const cfg = cooldownConfig(act);
+      if (!cfg || cfg.par !== "personne" || !cfg.alerte) return;
+      const fenetre = Math.max(cfg.duree + 12 * 3600000, 24 * 3600000);
+      Object.values(arbre).forEach(semaine => Object.values(semaine || {}).forEach(e => {
+        if (!e || e.action_id !== id || e.membre_id !== session.id || !e.createdAt) return;
+        const libre = e.createdAt + cfg.duree;
+        if (libre > now || libre < now - fenetre) return;
+        const cle = "lgc_alerte_" + session.id + "_" + id + "_" + libre;
+        if (localStorage.getItem(cle)) return;
+        const et = cooldownEtat(id, act, arbre, session.id);
+        localStorage.setItem(cle, "1");
+        if (et && et.libres > 0) afficherAlerte(`${act.nom} : tu peux la refaire !`);
+      }));
+    });
+  };
+  db.ref("actions_dispo").on("value", s => { defs = s.val() || {}; verifier(); });
+  db.ref("actions").on("value", s => { arbre = s.val() || {}; verifier(); });
+  setInterval(verifier, 5000);
 }

@@ -179,7 +179,7 @@ function renderProduitsMembresSelects() {
   const prevM = selM.value;
   selM.innerHTML = "";
   entries(MEMBRES).forEach(([id, m]) => {
-    if (m.actif === false) return;
+    if (m.actif === false || m.invisible) return;
     selM.appendChild(new Option(m.prenom + (m.nom ? " " + m.nom : ""), id, id === SESSION.id, id === (prevM || SESSION.id)));
   });
 

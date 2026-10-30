@@ -12,7 +12,19 @@ Le site utilise le projet Firebase existant (`js/firebase-config.js`). Toutes se
 Chaque membre gère les siens : pochons pris, vendus, restant, chiffre d'affaires, détail par produit, historique modifiable. Tout le monde voit les autres, seul le propriétaire (ou un admin) modifie.
 
 ## Cooldown
-Fleeca et Armurerie : 2 braquages maximum par semaine glissante, chacun se libère 7 jours après son enregistrement (réussite ou échec). Affiché sur le Dashboard, et le Tracker bloque la saisie quand il n'y en a plus de disponible (un admin peut passer outre). Réglable par action dans Admin → Actions (colonne « Cooldown »).
+Règle : X utilisations maximum sur une période glissante ; chacune (réussite ou échec) se libère exactement une période après son enregistrement. Le Tracker bloque la saisie quand il n'y en a plus de disponible (un admin peut passer outre).
+
+| Action | Règle | Compteur |
+|---|---|---|
+| Fleeca, Armurerie | 2 par 7 jours | partagé (tout le groupe) |
+| ATM, Supérette | 1 par 2 h | par personne |
+| Go Fast | 1 par 24 h | par personne |
+| Conteneur | 2 par 2 h | par personne |
+| Cambu | 1 par 3 h | par personne + alerte 🔔 |
+
+Tout est modifiable dans Admin → Actions (colonne « Cooldown » : max, jours, heures, partagé/par personne, alerte 🔔). Le Dashboard affiche le tableau partagé et un tableau par personne.
+
+**Alertes 🔔** : quand une action avec alerte est de nouveau disponible pour un membre, il reçoit un bandeau + un bip (+ une notification du navigateur s'il clique sur « Activer les alertes » dans le menu). Elles ne marchent que si le site est ouvert dans un onglet.
 
 ## Couleurs
 Admin → Apparence : couleur principale, fond, texte, thèmes prêts à l'emploi. Enregistrer l'applique à tous.

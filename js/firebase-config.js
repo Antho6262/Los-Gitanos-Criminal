@@ -171,31 +171,56 @@ function toast(msg, isErr) {
 }
 
 
-/* ---------- COOLDOWN DES BRAQUAGES ----------
-   Règle (comme sur les autres sites) : X braquages maximum sur une période glissante de N jours ;
-   chaque braquage (réussite OU échec) se libère exactement N jours après son enregistrement.
-   Fleeca et Armurerie : 2 par 7 jours par défaut. Réglable par action dans Admin → Actions
-   (champs cooldown_max / cooldown_jours). `arbre` = snapshot complet du nœud "actions" (toutes les semaines). */
-const COOLDOWN_DEFAUT = { "Fleeca": { max: 2, jours: 7 }, "Armurerie": { max: 2, jours: 7 } };
+/* ---------- COOLDOWNS ----------
+   Règle : "max" utilisations sur une période glissante ; chaque utilisation (réussite OU échec) se libère
+   exactement une période après son enregistrement. Deux modes :
+     - "groupe"   : le compteur est partagé par tout le monde (Fleeca, Armurerie)
+     - "personne" : chacun a son propre compteur (ATM, Supérette, Go Fast, Conteneur, Cambu)
+   Valeurs par défaut ci-dessous (par nom d'action) ; réglable par action dans Admin → Actions
+   (champs cooldown_max / cooldown_jours / cooldown_heures / cooldown_par / cooldown_alerte).
+   `arbre` = snapshot complet du nœud "actions" (toutes les semaines). */
+function normNom(s) { return String(s || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim(); }
+const COOLDOWN_DEFAUT = {
+  "fleeca":    { max: 2, jours: 7,  par: "groupe" },
+  "armurerie": { max: 2, jours: 7,  par: "groupe" },
+  "atm":       { max: 1, heures: 2,  par: "personne" },
+  "superette": { max: 1, heures: 2,  par: "personne" },
+  "go fast":   { max: 1, heures: 24, par: "personne" },
+  "conteneur": { max: 2, heures: 2,  par: "personne" },
+  "cambu":     { max: 1, heures: 3,  par: "personne", alerte: true }
+};
 function cooldownConfig(act) {
   if (!act) return null;
-  const d = COOLDOWN_DEFAUT[act.nom] || {};
-  const jours = Number(act.cooldown_jours) || d.jours || 0;
-  if (jours <= 0) return null;
-  return { jours, max: Number(act.cooldown_max) || d.max || 1 };
+  const d = COOLDOWN_DEFAUT[normNom(act.nom)] || {};
+  const jA = Number(act.cooldown_jours) || 0, hA = Number(act.cooldown_heures) || 0;
+  const perso = jA > 0 || hA > 0;
+  const jours = perso ? jA : (d.jours || 0), heures = perso ? hA : (d.heures || 0);
+  const duree = jours * 86400000 + heures * 3600000;
+  if (duree <= 0) return null;
+  return {
+    max: Number(act.cooldown_max) || d.max || 1, jours, heures, duree,
+    par: act.cooldown_par || d.par || "groupe",
+    alerte: act.cooldown_alerte !== undefined ? !!act.cooldown_alerte : !!d.alerte
+  };
 }
-function cooldownEtat(actionId, act, arbre) {
+function fmtPeriode(cfg) {
+  if (cfg.jours > 0 && !cfg.heures) return cfg.jours + (cfg.jours > 1 ? " jours" : " jour");
+  return Math.round(cfg.duree / 360000) / 10 + " h";
+}
+function cooldownEtat(actionId, act, arbre, membreId) {
   const cfg = cooldownConfig(act);
   if (!cfg) return null;
-  const now = Date.now(), duree = cfg.jours * 86400000;
+  const now = Date.now();
   const actifs = [];
   Object.values(arbre || {}).forEach(semaine => Object.values(semaine || {}).forEach(e => {
-    if (e && e.action_id === actionId && e.createdAt && e.createdAt + duree > now) actifs.push(e.createdAt);
+    if (!e || e.action_id !== actionId || !e.createdAt || e.createdAt + cfg.duree <= now) return;
+    if (cfg.par === "personne" && e.membre_id !== membreId) return;
+    actifs.push(e.createdAt);
   }));
   actifs.sort((a, b) => a - b);
   const libres = Math.max(0, cfg.max - actifs.length);
-  return { ...cfg, libres, liberations: actifs.map(x => x + duree),
-           prochain: libres > 0 ? null : actifs[actifs.length - cfg.max] + duree };
+  return { ...cfg, libres, liberations: actifs.map(x => x + cfg.duree),
+           prochain: libres > 0 ? null : actifs[actifs.length - cfg.max] + cfg.duree };
 }
 function fmtReste(ms) {
   ms = Math.max(0, ms);

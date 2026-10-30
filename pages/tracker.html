@@ -53,7 +53,7 @@ function renderContent() {
     <div class="panel mt16">
       <div class="panel-head"><h2>Nouvelle action</h2></div>
       <div class="row">
-        <div><label class="l">Membre</label><select id="fMembre" onchange="renderEquipeCheckboxes()"></select></div>
+        <div><label class="l">Membre</label><select id="fMembre" onchange="renderEquipeCheckboxes(); renderCooldown();"></select></div>
         <div><label class="l">Action</label><select id="fAction" onchange="onActionChange()"></select></div>
         <div><label class="l">Quantité</label><input type="number" id="fQte" value="1" min="1" onchange="autoFillMontants()"></div>
       </div>
@@ -150,16 +150,19 @@ function renderCooldown() {
   if (!box) return;
   const sel = document.getElementById("fAction");
   const act = sel ? ACTIONS_DISPO[sel.value] : null;
-  const et = act ? cooldownEtat(sel.value, act, ARBRE_ACTIONS) : null;
+  const membreId = document.getElementById("fMembre").value;
+  const et = act ? cooldownEtat(sel.value, act, ARBRE_ACTIONS, membreId) : null;
   if (!et) { box.innerHTML = ""; return; }
+  const qui = et.par === "personne" && MEMBRES[membreId] ? ` — ${MEMBRES[membreId].prenom}` : "";
+  const regle = `${et.max} max par ${fmtPeriode(et)}${et.par === "personne" ? " et par personne" : ""}`;
   if (et.libres > 0) {
     box.innerHTML = `<div style="margin:10px 0;padding:10px 18px;border-radius:6px;background:rgba(111,174,125,0.12);border:1px solid var(--success);text-align:center;">
-      ✅ <strong>${act.nom}</strong> — ${et.libres}/${et.max} disponible${et.libres > 1 ? "s" : ""} <span class="muted small">(${et.max} max par ${et.jours} jours)</span></div>`;
+      ✅ <strong>${act.nom}</strong>${qui} — ${et.libres}/${et.max} disponible${et.libres > 1 ? "s" : ""} <span class="muted small">(${regle})</span></div>`;
     return;
   }
   box.innerHTML = `<div style="margin:10px 0;padding:12px 18px;border-radius:6px;background:rgba(196,30,34,0.15);border:2px solid #c41e22;text-align:center;">
-    ⏳ <strong style="color:#ff6b6b">COOLDOWN ${act.nom.toUpperCase()}</strong> — prochain dans <strong style="color:var(--accent)">${fmtReste(et.prochain - Date.now())}</strong>
-    <span class="muted small">(${et.max} max par ${et.jours} jours)</span></div>`;
+    ⏳ <strong style="color:#ff6b6b">COOLDOWN ${act.nom.toUpperCase()}</strong>${qui} — prochain dans <strong style="color:var(--accent)">${fmtReste(et.prochain - Date.now())}</strong>
+    <span class="muted small">(${regle})</span></div>`;
 }
 
 function estActionEquipe() {
@@ -171,7 +174,7 @@ function renderEquipeCheckboxes() {
   if (!estActionEquipe()) return;
   const mainId = document.getElementById("fMembre").value;
   const box = document.getElementById("equipeCheckboxes");
-  box.innerHTML = entries(MEMBRES).filter(([id, m]) => m.actif !== false && id !== mainId && !GRADES_MASQUES.has(m.grade)).map(([id, m]) =>
+  box.innerHTML = entries(MEMBRES).filter(([id, m]) => m.actif !== false && !m.invisible && id !== mainId && !GRADES_MASQUES.has(m.grade)).map(([id, m]) =>
     `<label style="display:flex;align-items:center;gap:4px;"><input type="checkbox" value="${id}" class="chkEquipe"> ${m.prenom}</label>`
   ).join("");
 }
@@ -198,7 +201,7 @@ async function chargerListes() {
 
   const selM = document.getElementById("fMembre"), filtM = document.getElementById("filtMembre");
   entries(MEMBRES).forEach(([id, m]) => {
-    if (m.actif === false || gradesMasques.has(m.grade)) return;
+    if (m.actif === false || m.invisible || gradesMasques.has(m.grade)) return;
     const label = m.prenom + (m.nom ? " " + m.nom : "");
     selM.appendChild(new Option(label, id, id === SESSION.id, id === SESSION.id));
     filtM.appendChild(new Option(label, id));
@@ -244,9 +247,9 @@ async function ajouterAction() {
   if (!m || !act || qte <= 0) { toast("Complétez le formulaire.", true); return; }
   if (act.cat_variable && !document.getElementById("fProduitVar").value) { toast("Choisissez un produit.", true); return; }
 
-  const et = cooldownEtat(actionId, act, ARBRE_ACTIONS);
+  const et = cooldownEtat(actionId, act, ARBRE_ACTIONS, membreId);
   if (et && et.libres === 0) {
-    const txt = `Cooldown ${act.nom} : prochain dans ${fmtReste(et.prochain - Date.now())}.`;
+    const txt = `Cooldown ${act.nom}${et.par === "personne" ? " (" + m.prenom + ")" : ""} : prochain dans ${fmtReste(et.prochain - Date.now())}.`;
     if (SESSION.role !== "admin") { toast(txt, true); return; }
     if (!confirm(txt + " Enregistrer quand même ?")) return;
   }

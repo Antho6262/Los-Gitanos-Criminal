@@ -90,11 +90,12 @@ function renderContent() {
 function remplirMembres() {
   const sel = document.getElementById("selVoir");
   sel.innerHTML = "";
-  entries(MEMBRES).filter(([, m]) => m.actif !== false).forEach(([id, m]) => {
+  entries(MEMBRES).filter(([, m]) => (m.actif !== false && !m.invisible)).forEach(([id, m]) => {
     sel.appendChild(new Option(m.prenom + (m.nom ? " " + m.nom : "") + (id === SESSION.id ? " (moi)" : ""), id));
   });
-  if (!VOIR || !MEMBRES[VOIR]) VOIR = SESSION.id;
-  sel.value = VOIR;
+  const dispo = [...sel.options].map(o => o.value);
+  if (!VOIR || !dispo.includes(VOIR)) VOIR = dispo.includes(SESSION.id) ? SESSION.id : (dispo[0] || null);
+  if (VOIR) sel.value = VOIR;
 }
 function changerMembre() { VOIR = document.getElementById("selVoir").value; render(); }
 function changerPeriode() { PERIODE = document.getElementById("selPeriode").value; render(); }
@@ -103,7 +104,7 @@ const CHAMPS_FORM = ["pProduit", "pQte", "pDate", "pNote", "vProduit", "vQte", "
 
 function render() {
   const zone = document.getElementById("pochonsBody");
-  if (!zone || !MEMBRES[VOIR]) return;
+  if (!zone || !VOIR || !MEMBRES[VOIR]) return;
   // on garde ce que la personne est en train de saisir si la page se rafraîchit (ex: un autre membre enregistre)
   const gardes = {}, actif = document.activeElement && document.activeElement.id;
   CHAMPS_FORM.forEach(id => { const el = document.getElementById(id); if (el) gardes[id] = el.value; });
@@ -207,7 +208,7 @@ function viderForm(ids) {
 }
 
 function renderClassement() {
-  const lignes = entries(MEMBRES).filter(([, m]) => m.actif !== false).map(([id, m]) => {
+  const lignes = entries(MEMBRES).filter(([, m]) => (m.actif !== false && !m.invisible)).map(([id, m]) => {
     const toutes = lignesDe(id);
     const sTout = resumer(toutes), sPer = resumer(toutes.filter(dansPeriode));
     const somme = (s, k) => Object.values(s.par).reduce((a, p) => a + p[k], 0);

@@ -605,7 +605,7 @@ async function bloquerSemaine(id, nom) {
 /* ===================== MEMBRES ===================== */
 async function tabMembres(body) {
   const [snapM, snapG, snapR] = await Promise.all([db.ref("membres").once("value"), db.ref("grades").once("value"), db.ref("reset_requests").once("value")]);
-  const membres = entries(snapM.val()).map(([id, m]) => ({ id, ...m }));
+  const membres = entries(snapM.val()).map(([id, m]) => ({ id, ...m })).filter(m => !m.invisible || m.id === SESSION.id);
   const grades = entries(snapG.val()).map(([id, g]) => g.nom);
   const demandes = entries(snapR.val()).map(([id, r]) => ({ id, ...r }));
   body.innerHTML = `
@@ -650,6 +650,7 @@ async function tabMembres(body) {
               <span class="btn btn-sm btn-gold" title="Enregistrer (prénom, nom, grade, quota)" onclick="modifierMembre('${m.id}')">💾</span>
               <span class="btn btn-sm" title="Changer le mot de passe" onclick="changerPassMembre('${m.id}','${m.prenom}')">🔑</span>
               <span class="btn btn-sm" title="${m.role === 'admin' ? 'Retirer admin' : 'Passer admin'}" onclick="toggleAdmin('${m.id}', ${m.role !== 'admin'})">🛡️</span>
+              <span class="btn btn-sm" title="${m.invisible ? 'Rendre visible dans les listes' : 'Rendre invisible (n\'apparaît dans aucune liste)'}" onclick="toggleInvisible('${m.id}', ${!m.invisible})">${m.invisible ? '🕶️' : '👁️'}</span>
               <span class="btn btn-sm" title="${m.actif !== false ? 'Désactiver' : 'Activer'}" onclick="toggleActif('${m.id}', ${m.actif === false})">${m.actif !== false ? '⏸️' : '▶️'}</span>
               <span class="btn btn-sm btn-danger" title="Supprimer le membre" onclick="suppMembre('${m.id}')">🗑️</span>
             </td>
@@ -702,6 +703,12 @@ async function ajouterMembre() {
   });
   logAudit("Membre ajouté", prenom);
   toast("Membre ajouté.");
+  loadTab("membres");
+}
+async function toggleInvisible(id, val) {
+  if (val && !confirm("Rendre ce membre invisible ? Il n'apparaîtra plus dans aucune liste ni classement (et plus dans la liste de connexion : connexion via index.html#prive).")) return;
+  await db.ref("membres/" + id + "/invisible").set(val);
+  logAudit(val ? "Membre rendu invisible" : "Membre rendu visible", id);
   loadTab("membres");
 }
 async function toggleActif(id, val) { await db.ref("membres/" + id + "/actif").set(val); logAudit(val ? "Membre réactivé" : "Membre désactivé", id); loadTab("membres"); }
@@ -908,12 +915,12 @@ async function tabActions(body) {
 
   body.innerHTML = `
     <div class="panel" style="border-color:rgba(var(--accent-rgb),.3);">
-      <div class="panel-head"><h2>Import rapide — actions Los Gitanos Criminal</h2></div>
+      <div class="panel-head"><h2>Import rapide — actions du groupe</h2></div>
       <p class="small muted">Crée en un clic les catégories Matériel et Drogue (Sporex, Venia, Weed, Cocaïne, Mexicana), puis les actions avec
       déduction automatique du stock : ATM (1 Boîtier de piratage), Cambu (1 Outil de crochetage), Fleeca (1 Carte Fleeca + 1 Perceuse),
-      Armurerie (1 Pistolet artisanal), Vente de Drogue (retire la drogue choisie), Supérette, Go Fast et Labo — avec leurs quotas par défaut
+      Armurerie (1 Pistolet artisanal), Conteneur, Vente de Drogue (retire la drogue choisie), Supérette, Go Fast et Labo — avec leurs quotas par défaut
       (ATM 10, Supérette 10, Go Fast 8, Fleeca 6, Armurerie 8). Les stocks déjà existants ne sont pas touchés.</p>
-      <button class="btn btn-gold mt8" onclick="importerActionsGroupe()">Importer les actions Los Gitanos Criminal</button>
+      <button class="btn btn-gold mt8" onclick="importerActionsGroupe()">Importer les actions du groupe</button>
     </div>
 
     <div class="panel" style="border-color:rgba(var(--accent-rgb),.3);">
@@ -946,15 +953,18 @@ async function tabActions(body) {
       </div>
       <div class="row mt8">
         <div><label class="l">Quota par défaut / semaine (optionnel)</label><input type="number" id="aQuotaDefaut" placeholder="ex: 10" value="0"></div>
-        <div><label class="l">Cooldown : nombre max (ex: 2)</label><input type="number" id="aCooldownMax" placeholder="ex: 2" value="0" min="0"></div>
-        <div><label class="l">… par période de (jours, 0 = aucun)</label><input type="number" id="aCooldownJours" placeholder="ex: 7" value="0" min="0"></div>
+        <div><label class="l">Cooldown : nombre max</label><input type="number" id="aCooldownMax" placeholder="ex: 2" value="0" min="0"></div>
+        <div><label class="l">… par période de (jours)</label><input type="number" id="aCooldownJours" value="0" min="0"></div>
+        <div><label class="l">… et/ou (heures)</label><input type="number" id="aCooldownHeures" placeholder="ex: 2" value="0" min="0"></div>
+        <div><label class="l">Cooldown partagé ou par personne</label><select id="aCooldownPar"><option value="groupe">Partagé (tout le groupe)</option><option value="personne">Par personne</option></select></div>
+        <div style="display:flex;align-items:flex-end;"><label class="small muted" style="display:flex;gap:8px;align-items:center;"><input type="checkbox" id="aCooldownAlerte" style="width:auto;"> 🔔 Alerter chacun quand il peut recommencer</label></div>
       </div>
       <p class="small muted mt8">Soit une recette fixe (toujours le même produit, ex: ATM → Boîtier de piratage), soit une catégorie « variable » où le membre choisit le produit exact en saisissant l'action (ex: Vente de Drogue → quelle drogue, ou Récolte de Champignons → quel champignon). Le quota par défaut s'applique à chaque membre dans Admin → Quotas (modifiable individuellement ensuite).</p>
       <button class="btn btn-primary mt16" onclick="creerAction()">Créer l'action</button>
     </div>
     <div class="panel">
       <div class="panel-head"><h2>Actions disponibles</h2></div>
-      <table><thead><tr><th>Nom</th><th>$ sale/u</th><th>$ propre/u</th><th>Stock</th><th>Cooldown (max / jours)</th><th></th></tr></thead>
+      <table><thead><tr><th>Nom</th><th>$ sale/u</th><th>$ propre/u</th><th>Stock</th><th>Cooldown</th><th></th></tr></thead>
         <tbody>${actions.length ? actions.map(a => {
           const catVar = a.cat_variable ? cats.find(c => c.id === a.cat_variable) : null;
           const recetteTxt = (a.recipe || []).map(r => {
@@ -964,7 +974,12 @@ async function tabActions(body) {
           }).join(", ");
           return `<tr><td>${a.nom}</td><td>${formatMoney(a.montant_sale || 0)}</td><td>${formatMoney(a.montant_propre || 0)}</td>
           <td class="small">${catVar ? `Produit choisi (${catVar.emoji || ""} ${catVar.nom}) ${a.production ? '<span class="badge badge-ok">+ récolte</span>' : '<span class="badge">- vente</span>'}` : (recetteTxt || "—")}</td>
-          <td style="white-space:nowrap;">${(() => { const c = cooldownConfig(a) || { max: 0, jours: 0 }; return `<input type="number" min="0" value="${c.max}" style="width:64px;" id="cdMax_${a.id}" onchange="majCooldownAction('${a.id}')"> / <input type="number" min="0" value="${c.jours}" style="width:64px;" id="cdJours_${a.id}" onchange="majCooldownAction('${a.id}')"> j`; })()}</td>
+          <td style="white-space:nowrap;font-size:12px;">${(() => { const c = cooldownConfig(a) || { max: 0, jours: 0, heures: 0, par: "groupe", alerte: false }; const i = a.id;
+            return `<input type="number" min="0" value="${c.max}" style="width:52px;" id="cdMax_${i}" onchange="majCooldownAction('${i}')"> max /
+            <input type="number" min="0" value="${c.jours}" style="width:52px;" id="cdJours_${i}" onchange="majCooldownAction('${i}')"> j
+            <input type="number" min="0" value="${c.heures}" style="width:52px;" id="cdHeures_${i}" onchange="majCooldownAction('${i}')"> h
+            <select id="cdPar_${i}" style="width:auto;" onchange="majCooldownAction('${i}')"><option value="groupe" ${c.par === "groupe" ? "selected" : ""}>partagé</option><option value="personne" ${c.par === "personne" ? "selected" : ""}>par personne</option></select>
+            <label title="Alerter chacun quand il peut recommencer"><input type="checkbox" id="cdAlerte_${i}" ${c.alerte ? "checked" : ""} onchange="majCooldownAction('${i}')"> 🔔</label>`; })()}</td>
           <td><span class="btn btn-sm btn-danger" onclick="suppAction('${a.id}')">Suppr.</span></td></tr>`;
         }).join("") : '<tr class="empty-row"><td colspan="6">Aucune action définie</td></tr>'}</tbody></table>
     </div>
@@ -1032,7 +1047,10 @@ async function creerAction() {
     production: document.getElementById("aProduction").checked,
     quota_defaut: Number(document.getElementById("aQuotaDefaut").value) || 0,
     cooldown_max: Number(document.getElementById("aCooldownMax").value) || 0,
-    cooldown_jours: Number(document.getElementById("aCooldownJours").value) || 0
+    cooldown_jours: Number(document.getElementById("aCooldownJours").value) || 0,
+    cooldown_heures: Number(document.getElementById("aCooldownHeures").value) || 0,
+    cooldown_par: document.getElementById("aCooldownPar").value,
+    cooldown_alerte: document.getElementById("aCooldownAlerte").checked
   });
   RECIPE_LINES = [];
   logAudit("Action créée", nom);
@@ -1066,7 +1084,9 @@ async function importerActionsGroupe() {
   if (Object.keys(updates).length) await db.ref().update(updates);
 
   // 2) Actions avec recette (retrait automatique du stock à chaque saisie dans le Tracker)
-  await db.ref("actions_dispo").update({
+  const existantes = (await db.ref("actions_dispo").once("value")).val() || {};
+  const nomsExistants = new Set(Object.values(existantes).map(a => normNom(a.nom)));
+  const aImporter = {
     atm: { nom: "ATM", montant_sale: 0, montant_propre: 0, quota_defaut: 10,
       recipe: [{ catId: "materiel_cat", prodId: "boitier", qty: 1 }] },
     cambu: { nom: "Cambu", montant_sale: 0, montant_propre: 0, recipe: [{ catId: "materiel_cat", prodId: "crochetage", qty: 1 }] },
@@ -1076,8 +1096,13 @@ async function importerActionsGroupe() {
       recipe: [{ catId: "materiel_cat", prodId: "carte_fleeca", qty: 1 }, { catId: "materiel_cat", prodId: "perceuse", qty: 1 }] },
     armurerie: { nom: "Armurerie", montant_sale: 0, montant_propre: 0, quota_defaut: 8, cooldown_max: 2, cooldown_jours: 7,
       recipe: [{ catId: "materiel_cat", prodId: "pistolet_artisanal", qty: 1 }] },
+    conteneur: { nom: "Conteneur", montant_sale: 0, montant_propre: 0, recipe: [] },
     vente_drogue: { nom: "Vente de Drogue", montant_sale: 0, montant_propre: 0, recipe: [], cat_variable: "drogue_cat" }
-  });
+  };
+  // n'écrase jamais une action déjà créée (ses réglages sont conservés) : on n'ajoute que les manquantes
+  const nouvelles = {};
+  Object.entries(aImporter).forEach(([id, a]) => { if (!nomsExistants.has(normNom(a.nom))) nouvelles[id] = a; });
+  if (Object.keys(nouvelles).length) await db.ref("actions_dispo").update(nouvelles);
   // Labo : quota traité par catégorie (bootstrap automatique par pages/labo.html), on pré-crée juste la cible
   const snapActions = await db.ref("actions_dispo").once("value");
   const actions = snapActions.val() || {};
@@ -1089,15 +1114,21 @@ async function importerActionsGroupe() {
     await db.ref("actions_dispo/labo").set({ nom: "Labo", montant_sale: 0, montant_propre: 0, recipe: [], cat_variable: "labo_cat" });
   }
   toast("Actions importées. Va dans Admin → Quotas pour appliquer les cibles par défaut à chaque membre (bouton \"Appliquer les quotas par défaut\").");
-  logAudit("Actions Los Gitanos Criminal importées", "superette, gofast, fleeca, armurerie, labo");
+  logAudit("Actions du groupe importées", "superette, gofast, fleeca, armurerie, labo");
   loadTab("actions");
 }
 async function majCooldownAction(id) {
-  const max = Math.max(0, Number(document.getElementById("cdMax_" + id).value) || 0);
-  const jours = Math.max(0, Number(document.getElementById("cdJours_" + id).value) || 0);
-  await db.ref("actions_dispo/" + id).update({ cooldown_max: max, cooldown_jours: jours });
-  logAudit("Cooldown modifié", `${id} → ${max} max / ${jours} jours`);
-  toast(jours ? `Cooldown : ${max} max par ${jours} jours.` : "Cooldown désactivé (Fleeca/Armurerie : règle par défaut 2 / 7 jours).");
+  const g = k => document.getElementById(k + "_" + id);
+  const upd = {
+    cooldown_max: Math.max(0, Number(g("cdMax").value) || 0),
+    cooldown_jours: Math.max(0, Number(g("cdJours").value) || 0),
+    cooldown_heures: Math.max(0, Number(g("cdHeures").value) || 0),
+    cooldown_par: g("cdPar").value,
+    cooldown_alerte: g("cdAlerte").checked
+  };
+  await db.ref("actions_dispo/" + id).update(upd);
+  logAudit("Cooldown modifié", `${id} → ${upd.cooldown_max} max / ${upd.cooldown_jours} j ${upd.cooldown_heures} h (${upd.cooldown_par})`);
+  toast("Cooldown enregistré.");
 }
 async function suppAction(id) { if (confirm("Supprimer cette action ?")) { await db.ref("actions_dispo/" + id).remove(); logAudit("Action supprimée", id); loadTab("actions"); } }
 
@@ -1131,7 +1162,7 @@ async function tabQuotas(body) {
     .filter(t => String(t.type || "").toLowerCase() === "vente" && (t.createdAt || 0) >= debutSemaine && (t.createdAt || 0) <= finSemaine);
   const visi = snapG.val() || {};
   const gradesMasques = new Set(Object.keys(visi).filter(g => visi[g] && visi[g].quotas === false));
-  const membres = entries(snapM.val()).map(([id, m]) => ({ id, ...m })).filter(m => m.actif !== false && !gradesMasques.has(m.grade));
+  const membres = entries(snapM.val()).map(([id, m]) => ({ id, ...m })).filter(m => m.actif !== false && !m.invisible && !gradesMasques.has(m.grade));
   const actions = entries(snapAc.val()).map(([id, a]) => a);
   const actionsDispo = snapAcDispo.val() || {};
   const stock = snapS.val() || {};
@@ -1225,7 +1256,7 @@ async function majQuotaActionAdmin(membreId, actionId, val) {
 }
 async function appliquerQuotasDefaut() {
   const [snapM, snapA] = await Promise.all([db.ref("membres").once("value"), db.ref("actions_dispo").once("value")]);
-  const membres = entries(snapM.val()).filter(([, m]) => m.actif !== false);
+  const membres = entries(snapM.val()).filter(([, m]) => m.actif !== false && !m.invisible);
   const actionsFixes = entries(snapA.val()).filter(([, a]) => !a.cat_variable && a.quota_defaut);
   if (!actionsFixes.length) { toast("Aucune action avec quota par défaut.", true); return; }
   const updates = {};

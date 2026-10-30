@@ -17,7 +17,11 @@
 
     <div class="field">
       <label>Membre</label>
-      <select id="selMembre"><option value="">Chargement…</option></select>
+      <select id="selMembre" onchange="document.getElementById('priveWrap').style.display = this.value === '__prive__' ? 'block' : 'none';"><option value="">Chargement…</option></select>
+    </div>
+    <div class="field" id="priveWrap" style="display:none;">
+      <label>Prénom du compte</label>
+      <input type="text" id="inpPrive" placeholder="Prénom">
     </div>
     <div class="field">
       <label>Mot de passe</label>
@@ -50,12 +54,18 @@ async function chargerMembres() {
     MEMBRES = data;
     sel.innerHTML = '<option value="">— Sélectionner —</option>';
     entries(data).forEach(([id, m]) => {
-      if (m.actif === false) return;
+      if (m.actif === false || m.invisible) return;
       const opt = document.createElement("option");
       opt.value = id;
       opt.textContent = m.prenom + (m.nom ? " " + m.nom : "");
       sel.appendChild(opt);
     });
+    // Comptes invisibles : connexion via index.html#prive (ils n'apparaissent pas dans la liste)
+    if (location.hash === "#prive") {
+      const opt = document.createElement("option");
+      opt.value = "__prive__"; opt.textContent = "🔒 Compte privé…";
+      sel.appendChild(opt);
+    }
     if (Object.keys(data).length === 0) {
       sel.innerHTML = '<option value="">Aucun membre — lancez l\'initialisation</option>';
       document.getElementById("setupLink").style.display = "block";
@@ -67,10 +77,15 @@ async function chargerMembres() {
 }
 
 function doLogin() {
-  const id = document.getElementById("selMembre").value;
+  let id = document.getElementById("selMembre").value;
   const pass = document.getElementById("inpPass").value.trim();
   const errEl = document.getElementById("errMsg");
   errEl.textContent = "";
+  if (id === "__prive__") {
+    const p = document.getElementById("inpPrive").value.trim().toLowerCase();
+    const trouve = entries(MEMBRES).find(([, x]) => x.invisible && (x.prenom || "").toLowerCase() === p);
+    id = trouve ? trouve[0] : "";
+  }
   if (!id) { errEl.textContent = "Sélectionnez un membre."; return; }
   const m = MEMBRES[id];
   if (!m || m.mot_de_passe !== pass) {

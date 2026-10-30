@@ -54,7 +54,7 @@ function renderTout() {
     wrapFM.innerHTML = `<label class="l">Membre</label><select id="fMembre"></select>`;
     const selM = document.getElementById("fMembre");
     entries(MEMBRES).forEach(([id, m]) => {
-      if (m.actif === false || gradesMasques.has(m.grade)) return;
+      if (m.actif === false || m.invisible || gradesMasques.has(m.grade)) return;
       const label = m.prenom + (m.nom ? " " + m.nom : "");
       selM.appendChild(new Option(label, id, id === SESSION.id, id === (prevFM || SESSION.id)));
     });
@@ -62,7 +62,7 @@ function renderTout() {
     wrapFM.innerHTML = `<label class="l">Membre</label><input type="text" value="${SESSION.prenom}" disabled>`;
   }
   entries(MEMBRES).forEach(([id, m]) => {
-    if (m.actif === false || gradesMasques.has(m.grade)) return;
+    if (m.actif === false || m.invisible || gradesMasques.has(m.grade)) return;
     const label = m.prenom + (m.nom ? " " + m.nom : "");
     filtM.appendChild(new Option(label, id));
   });
