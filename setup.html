@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Initialisation — Los Gitanos Criminal</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body class="login-body">
+
+<div class="login-wrap">
+  <div class="login-card fade-in" style="max-width:440px;">
+    <div class="login-brand">INITIALISATION</div>
+    <div class="login-sub">Usage unique — Los Gitanos Criminal</div>
+    <div class="sigil-rule"></div>
+
+    <p class="muted small" style="line-height:1.6;">
+      Ce bouton crée la base vierge : le Fondateur (Tony Diaz) et le Lead
+      (Vito Scaletta), tous deux avec accès total,
+      et toutes les autres données (stock, actions, semaines, membres suivants…)
+      restent vides pour être configurées depuis l'Admin.
+    </p>
+
+    <div id="warnBox" class="panel" style="display:none; border-color:rgba(193,86,76,.4); margin-top:14px;">
+      <p class="small" style="color:var(--danger); margin:0;">⚠️ Des membres existent déjà dans cette base. Ce bouton n'est à utiliser qu'une seule fois, par le vrai Fondateur. Pour ajouter les autres membres, utilise <b>Admin → Membres</b> une fois connecté — pas cette page.</p>
+      <label class="small muted" style="display:flex; align-items:center; gap:8px; cursor:pointer; margin-top:10px;">
+        <input type="checkbox" id="confirmOverride" style="width:auto;" onchange="document.getElementById('btnInit').disabled = !this.checked;">
+        Je comprends, je veux quand même créer un compte Fondateur supplémentaire.
+      </label>
+    </div>
+
+    <div class="field" style="margin-top:18px;">
+      <label>Prénom du Fondateur</label>
+      <input type="text" id="inpPrenom" value="Tony" placeholder="Ex : Marco">
+    </div>
+    <div class="field">
+      <label>Nom du Fondateur (optionnel)</label>
+      <input type="text" id="inpNom" value="Diaz" placeholder="Ex : Rossi">
+    </div>
+    <div class="field">
+      <label>Mot de passe</label>
+      <input type="password" id="inpPass" value="tony2026" placeholder="Choisis un mot de passe">
+    </div>
+
+    <button class="btn btn-primary" id="btnInit" onclick="initialiser()">Initialiser le site</button>
+    <div id="statusMsg" class="login-error" style="color:var(--success);"></div>
+    <div class="login-foot"><a href="index.html">← Retour à la connexion</a></div>
+  </div>
+</div>
+
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+<script src="js/firebase-config.js"></script>
+<script>
+(async function checkExisting() {
+  try {
+    const snap = await db.ref("membres").once("value");
+    if (snap.val()) {
+      document.getElementById("warnBox").style.display = "block";
+      document.getElementById("btnInit").disabled = true;
+    }
+  } catch (e) {}
+})();
+
+async function initialiser() {
+  const prenom = document.getElementById("inpPrenom").value.trim();
+  const nom = document.getElementById("inpNom").value.trim();
+  const pass = document.getElementById("inpPass").value;
+  const statusEl = document.getElementById("statusMsg");
+
+  if (!prenom || !pass) {
+    statusEl.style.color = "var(--danger)";
+    statusEl.textContent = "Prénom et mot de passe requis.";
+    return;
+  }
+
+  statusEl.style.color = "var(--steel)";
+  statusEl.textContent = "Initialisation en cours…";
+
+  try {
+    const fondateurId = "fondateur_" + prenom.toLowerCase().replace(/[^a-z0-9]/g, "");
+
+    await db.ref("membres/" + fondateurId).set({
+      prenom: prenom,
+      nom: nom,
+      grade: "Fondateur",
+      role: "admin",
+      mot_de_passe: pass,
+      actif: true,
+      quota: 0
+    });
+
+    // Lead du groupe : Vito Scaletta (mot de passe par défaut à changer dans Admin → Membres)
+    await db.ref("membres/lead_vito").set({
+      prenom: "Vito", nom: "Scaletta", grade: "Lead", role: "admin",
+      mot_de_passe: "vito2026", actif: true, quota: 0
+    });
+
+    await db.ref("grades/fondateur").set({ nom: "Fondateur", ordre: 1 });
+    await db.ref("grades/lead").set({ nom: "Lead", ordre: 2 });
+    await db.ref("grades/membre").set({ nom: "Membre", ordre: 3 });
+
+    // accès total pour le Fondateur et le Lead ; les membres ont tout sauf l'Admin
+    const permsFondateur = {}, permsMembre = {};
+    PAGES_DISPO.forEach(p => { permsFondateur[p.page] = true; permsMembre[p.page] = p.page !== "admin"; });
+    await db.ref("permissions/Fondateur").set(permsFondateur);
+    await db.ref("permissions/Lead").set(permsFondateur);
+    await db.ref("permissions/Membre").set(permsMembre);
+
+    const semaineId = "semaine_1";
+    await db.ref("semaines/" + semaineId).set({
+      nom: "Semaine 1",
+      bloquee: false,
+      createdAt: Date.now()
+    });
+
+    // structures vides prêtes à être remplies depuis l'Admin
+    await db.ref("config").update({
+      blanchiment_taux: 35,
+      nom_groupe: "Los Gitanos Criminal"
+    });
+
+    statusEl.style.color = "var(--success)";
+    statusEl.textContent = "✅ Site initialisé. Redirection…";
+    setTimeout(() => window.location.href = "index.html", 1400);
+  } catch (e) {
+    statusEl.style.color = "var(--danger)";
+    statusEl.textContent = "Erreur : " + e.message + " (vérifiez js/firebase-config.js et les règles de la base).";
+  }
+}
+</script>
+</body>
+</html>

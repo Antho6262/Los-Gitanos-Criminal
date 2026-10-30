@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Pochons — Los Gitanos Criminal</title>
+<link rel="stylesheet" href="../css/style.css">
+</head>
+<body>
+<div id="shell"></div>
+
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+<script src="../js/firebase-config.js"></script>
+<script src="../js/app.js"></script>
+<script>
+/* Pochons — chaque membre gère les siens :
+   pochons/{membreId}/{id} = { type: "prise" | "vente", produit, quantite,
+     prix_unitaire, total, compte ("sale"|"propre"), date, heure, note, createdAt }
+   Restant = pochons pris − pochons vendus. CA = somme des ventes. */
+
+let SESSION, MEMBRES = {}, STOCK = {}, TOUT = {};      // TOUT = snapshot de pochons/
+let VOIR = null;                                        // id du membre affiché
+let PERIODE = "tout";
+
+const esc = s => String(s == null ? "" : s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const nb = n => (Number(n) || 0).toLocaleString("fr-FR");
+
+function peutModifier(membreId) { return SESSION.role === "admin" || membreId === SESSION.id; }
+
+function dansPeriode(e) {
+  if (PERIODE === "tout") return true;
+  const jours = { jour: 0, "7": 6, "30": 29 }[PERIODE];
+  const limite = new Date(); limite.setHours(0, 0, 0, 0); limite.setDate(limite.getDate() - jours);
+  return (e.createdAt || 0) >= limite.getTime() || (e.date && new Date(e.date + "T12:00:00") >= limite);
+}
+
+function lignesDe(membreId) {
+  return entries(TOUT[membreId]).map(([id, e]) => ({ id, membreId, ...e })).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+}
+
+// Calcule pris / vendus / restant / CA par produit
+function resumer(lignes) {
+  const par = {};
+  const tot = { pris: 0, vendus: 0, ca: 0, restant: 0 };
+  lignes.forEach(e => {
+    const k = (e.produit || "?").trim();
+    const p = par[k] = par[k] || { produit: k, pris: 0, vendus: 0, ca: 0, restantTotal: 0, derniersPrix: null };
+    const q = Number(e.quantite) || 0;
+    if (e.type === "prise") p.pris += q; else { p.vendus += q; p.ca += Number(e.total) || 0; }
+  });
+  return { par, tot };
+}
+
+function produitsConnus(membreId) {
+  const noms = new Set();
+  lignesDe(membreId).forEach(e => e.produit && noms.add(e.produit));
+  entries(STOCK).forEach(([, c]) => entries(c.produits).forEach(([, p]) => p.nom && noms.add(p.nom)));
+  return [...noms];
+}
+
+function prixStock(nom) {
+  for (const [, c] of entries(STOCK)) for (const [, p] of entries(c.produits)) if (p.nom === nom && p.prix) return Number(p.prix);
+  return 0;
+}
+
+function restantDe(membreId, produit) {
+  return lignesDe(membreId).filter(e => (e.produit || "").trim() === produit.trim())
+    .reduce((a, e) => a + (e.type === "prise" ? 1 : -1) * (Number(e.quantite) || 0), 0);
+}
+
+function renderContent() {
+  document.getElementById("content").innerHTML = `
+    <h1>Pochons</h1>
+    <div class="sigil-rule"></div>
+    <div class="row" style="max-width:640px;">
+      <div><label class="l">Membre affiché</label><select id="selVoir" onchange="changerMembre()"></select></div>
+      <div><label class="l">Période (prises, ventes, CA)</label>
+        <select id="selPeriode" onchange="changerPeriode()">
+          <option value="tout">Depuis le début</option><option value="jour">Aujourd'hui</option>
+          <option value="7">7 derniers jours</option><option value="30">30 derniers jours</option>
+        </select></div>
+    </div>
+    <div id="pochonsBody"></div>
+  `;
+  remplirMembres();
+}
+
+function remplirMembres() {
+  const sel = document.getElementById("selVoir");
+  sel.innerHTML = "";
+  entries(MEMBRES).filter(([, m]) => m.actif !== false).forEach(([id, m]) => {
+    sel.appendChild(new Option(m.prenom + (m.nom ? " " + m.nom : "") + (id === SESSION.id ? " (moi)" : ""), id));
+  });
+  if (!VOIR || !MEMBRES[VOIR]) VOIR = SESSION.id;
+  sel.value = VOIR;
+}
+function changerMembre() { VOIR = document.getElementById("selVoir").value; render(); }
+function changerPeriode() { PERIODE = document.getElementById("selPeriode").value; render(); }
+
+const CHAMPS_FORM = ["pProduit", "pQte", "pDate", "pNote", "vProduit", "vQte", "vPrix", "vCompte", "vDate"];
+
+function render() {
+  const zone = document.getElementById("pochonsBody");
+  if (!zone || !MEMBRES[VOIR]) return;
+  // on garde ce que la personne est en train de saisir si la page se rafraîchit (ex: un autre membre enregistre)
+  const gardes = {}, actif = document.activeElement && document.activeElement.id;
+  CHAMPS_FORM.forEach(id => { const el = document.getElementById(id); if (el) gardes[id] = el.value; });
+  const memeMembre = zone.dataset.membre === VOIR;
+  const m = MEMBRES[VOIR];
+  const toutes = lignesDe(VOIR);
+  const periode = toutes.filter(dansPeriode);
+  const modifiable = peutModifier(VOIR);
+
+  // restant : toujours depuis le début (ce qu'il a réellement dans les poches)
+  const sTout = resumer(toutes), sPer = resumer(periode);
+  const restantTotal = Object.values(sTout.par).reduce((a, p) => a + (p.pris - p.vendus), 0);
+  const pris = Object.values(sPer.par).reduce((a, p) => a + p.pris, 0);
+  const vendus = Object.values(sPer.par).reduce((a, p) => a + p.vendus, 0);
+  const ca = Object.values(sPer.par).reduce((a, p) => a + p.ca, 0);
+  const prixMoyen = vendus ? Math.round(ca / vendus) : 0;
+
+  const noms = new Set([...Object.keys(sTout.par)]);
+  const produitsOpt = produitsConnus(VOIR).map(n => `<option value="${esc(n)}">`).join("");
+
+  zone.innerHTML = `
+    <h2 style="margin:22px 0 12px;font-size:16px;">${esc(m.prenom)} ${esc(m.nom || "")}</h2>
+    <div class="grid cols-4">
+      <div class="card"><h3>Restant en pochon</h3><div class="stat-num ${restantTotal < 0 ? "danger" : ""}">${nb(restantTotal)}</div><div class="stat-sub">pris − vendus (depuis le début)</div></div>
+      <div class="card"><h3>Pochons pris</h3><div class="stat-num">${nb(pris)}</div></div>
+      <div class="card"><h3>Pochons vendus</h3><div class="stat-num">${nb(vendus)}</div></div>
+      <div class="card"><h3>Chiffre d'affaires</h3><div class="stat-num">${formatMoney(ca)}</div><div class="stat-sub">${vendus ? "≈ " + formatMoney(prixMoyen) + " / pochon" : "aucune vente"}</div></div>
+    </div>
+
+    ${modifiable ? `
+    <datalist id="dlProduits">${produitsOpt}</datalist>
+    <div class="grid cols-2 mt16">
+      <div class="panel">
+        <div class="panel-head"><h2>➕ Prendre des pochons</h2></div>
+        <div class="row">
+          <div><label class="l">Produit</label><input type="text" id="pProduit" list="dlProduits" placeholder="Ex : Weed"></div>
+          <div><label class="l">Quantité</label><input type="number" id="pQte" value="1" min="1"></div>
+        </div>
+        <div class="row mt8">
+          <div><label class="l">Date</label><input type="date" id="pDate"></div>
+          <div><label class="l">Note (optionnel)</label><input type="text" id="pNote"></div>
+        </div>
+        <button class="btn btn-primary mt16" onclick="enregistrerPrise()">Enregistrer la prise</button>
+      </div>
+      <div class="panel">
+        <div class="panel-head"><h2>💰 Vendre des pochons</h2></div>
+        <div class="row">
+          <div><label class="l">Produit</label><input type="text" id="vProduit" list="dlProduits" placeholder="Ex : Weed" onchange="prefillPrix()"></div>
+          <div><label class="l">Quantité</label><input type="number" id="vQte" value="1" min="1"></div>
+        </div>
+        <div class="row mt8">
+          <div><label class="l">Prix unitaire ($)</label><input type="number" id="vPrix" value="0" min="0"></div>
+          <div><label class="l">Argent</label><select id="vCompte"><option value="sale">Sale</option><option value="propre">Propre</option></select></div>
+          <div><label class="l">Date</label><input type="date" id="vDate"></div>
+        </div>
+        <button class="btn btn-primary mt16" onclick="enregistrerVente()">Enregistrer la vente</button>
+      </div>
+    </div>` : `<p class="muted small mt16">Tu consultes les pochons de ${esc(m.prenom)} : seul ${esc(m.prenom)} (ou un admin) peut les modifier.</p>`}
+
+    <div class="panel mt16">
+      <div class="panel-head"><h2>Détail par produit</h2></div>
+      <table><thead><tr><th>Produit</th><th>Restant</th><th>Pris</th><th>Vendus</th><th>CA</th><th>Prix moyen</th></tr></thead><tbody>
+      ${noms.size ? [...noms].map(n => {
+        const t = sTout.par[n], p = sPer.par[n] || { pris: 0, vendus: 0, ca: 0 };
+        const reste = t.pris - t.vendus;
+        return `<tr><td>${esc(n)}</td><td class="mono"><span class="badge ${reste < 0 ? "badge-fail" : reste === 0 ? "badge-warn" : "badge-ok"}">${nb(reste)}</span></td>
+          <td class="mono">${nb(p.pris)}</td><td class="mono">${nb(p.vendus)}</td><td class="mono">${formatMoney(p.ca)}</td><td class="mono">${p.vendus ? formatMoney(Math.round(p.ca / p.vendus)) : "—"}</td></tr>`;
+      }).join("") : '<tr class="empty-row"><td colspan="6">Aucun pochon pour l\'instant</td></tr>'}
+      </tbody></table>
+    </div>
+
+    <div class="panel">
+      <div class="panel-head"><h2>Historique</h2></div>
+      <table><thead><tr><th>Date</th><th>Type</th><th>Produit</th><th>Qté</th><th>Prix</th><th>Total</th><th>Argent</th><th>Note</th><th></th></tr></thead><tbody>
+      ${periode.length ? periode.slice(0, 100).map(e => `<tr>
+        <td>${esc(e.date || "")} ${esc(e.heure || "")}</td>
+        <td><span class="badge ${e.type === "prise" ? "badge-warn" : "badge-ok"}">${e.type === "prise" ? "Prise" : "Vente"}</span></td>
+        <td>${esc(e.produit)}</td><td class="mono">${nb(e.quantite)}</td>
+        <td class="mono">${e.type === "vente" ? formatMoney(e.prix_unitaire) : "—"}</td>
+        <td class="mono">${e.type === "vente" ? formatMoney(e.total) : "—"}</td>
+        <td>${e.type === "vente" ? (e.compte === "propre" ? "Propre" : "Sale") : "—"}</td>
+        <td class="small muted">${esc(e.note || "")}</td>
+        <td style="white-space:nowrap;">${peutModifier(e.membreId) ? `<span class="btn btn-sm" onclick="modifierLigne('${e.id}')">Modifier</span> <span class="btn btn-sm btn-danger" onclick="supprimerLigne('${e.id}')">Suppr.</span>` : ""}</td>
+      </tr>`).join("") : '<tr class="empty-row"><td colspan="9">Aucune ligne sur cette période</td></tr>'}
+      </tbody></table>
+      ${periode.length > 100 ? '<p class="small muted mt8">100 dernières lignes affichées.</p>' : ""}
+    </div>
+
+    ${renderClassement()}
+  `;
+  const today = todayISO();
+  ["pDate", "vDate"].forEach(id => { const el = document.getElementById(id); if (el) el.value = today; });
+  if (memeMembre) CHAMPS_FORM.forEach(id => { const el = document.getElementById(id); if (el && gardes[id] !== undefined) el.value = gardes[id]; });
+  zone.dataset.membre = VOIR;
+  if (memeMembre && actif && document.getElementById(actif)) document.getElementById(actif).focus();
+}
+
+function viderForm(ids) {
+  const defauts = { pQte: "1", vQte: "1", vPrix: "0", pProduit: "", pNote: "", vProduit: "" };
+  ids.forEach(id => { const el = document.getElementById(id); if (el) el.value = defauts[id]; });
+}
+
+function renderClassement() {
+  const lignes = entries(MEMBRES).filter(([, m]) => m.actif !== false).map(([id, m]) => {
+    const toutes = lignesDe(id);
+    const sTout = resumer(toutes), sPer = resumer(toutes.filter(dansPeriode));
+    const somme = (s, k) => Object.values(s.par).reduce((a, p) => a + p[k], 0);
+    return { id, nom: m.prenom + (m.nom ? " " + m.nom : ""), restant: somme(sTout, "pris") - somme(sTout, "vendus"),
+      pris: somme(sPer, "pris"), vendus: somme(sPer, "vendus"), ca: somme(sPer, "ca") };
+  }).sort((a, b) => b.ca - a.ca);
+  const tot = lignes.reduce((a, l) => ({ restant: a.restant + l.restant, pris: a.pris + l.pris, vendus: a.vendus + l.vendus, ca: a.ca + l.ca }), { restant: 0, pris: 0, vendus: 0, ca: 0 });
+  return `
+    <div class="panel">
+      <div class="panel-head"><h2>Tout le groupe</h2></div>
+      <table><thead><tr><th>Membre</th><th>Restant</th><th>Pris</th><th>Vendus</th><th>CA</th></tr></thead><tbody>
+      ${lignes.map(l => `<tr style="cursor:pointer;" onclick="VOIR='${l.id}';document.getElementById('selVoir').value=VOIR;render();window.scrollTo(0,0);">
+        <td>${esc(l.nom)}</td><td class="mono">${nb(l.restant)}</td><td class="mono">${nb(l.pris)}</td><td class="mono">${nb(l.vendus)}</td><td class="mono">${formatMoney(l.ca)}</td></tr>`).join("")}
+      <tr><td><b>TOTAL</b></td><td class="mono"><b>${nb(tot.restant)}</b></td><td class="mono"><b>${nb(tot.pris)}</b></td><td class="mono"><b>${nb(tot.vendus)}</b></td><td class="mono"><b>${formatMoney(tot.ca)}</b></td></tr>
+      </tbody></table>
+    </div>`;
+}
+
+function prefillPrix() {
+  const nom = document.getElementById("vProduit").value.trim();
+  if (!nom) return;
+  const derniere = lignesDe(VOIR).find(e => e.type === "vente" && (e.produit || "").trim() === nom);
+  const prix = derniere ? Number(derniere.prix_unitaire) : prixStock(nom);
+  if (prix) document.getElementById("vPrix").value = prix;
+}
+
+async function enregistrerPrise() {
+  if (!peutModifier(VOIR)) return;
+  const produit = document.getElementById("pProduit").value.trim();
+  const quantite = Math.floor(Number(document.getElementById("pQte").value) || 0);
+  if (!produit || quantite <= 0) { toast("Produit et quantité requis.", true); return; }
+  await db.ref(`pochons/${VOIR}/${uid()}`).set({
+    type: "prise", produit, quantite,
+    date: document.getElementById("pDate").value || todayISO(), heure: nowHHMM(),
+    note: document.getElementById("pNote").value.trim(), createdAt: Date.now()
+  });
+  logAudit("Pochons pris", `${MEMBRES[VOIR].prenom} — ${produit} x${quantite}`);
+  viderForm(["pProduit", "pQte", "pNote"]);
+  toast("Prise enregistrée.");
+}
+
+async function enregistrerVente() {
+  if (!peutModifier(VOIR)) return;
+  const produit = document.getElementById("vProduit").value.trim();
+  const quantite = Math.floor(Number(document.getElementById("vQte").value) || 0);
+  const prix = Number(document.getElementById("vPrix").value) || 0;
+  if (!produit || quantite <= 0) { toast("Produit et quantité requis.", true); return; }
+  const reste = restantDe(VOIR, produit);
+  if (quantite > reste && !confirm(`Il ne reste que ${reste} pochon(s) de ${produit}. Enregistrer la vente de ${quantite} quand même ?`)) return;
+  await db.ref(`pochons/${VOIR}/${uid()}`).set({
+    type: "vente", produit, quantite, prix_unitaire: prix, total: quantite * prix,
+    compte: document.getElementById("vCompte").value,
+    date: document.getElementById("vDate").value || todayISO(), heure: nowHHMM(), createdAt: Date.now()
+  });
+  logAudit("Pochons vendus", `${MEMBRES[VOIR].prenom} — ${produit} x${quantite} à ${prix} $`);
+  viderForm(["vProduit", "vQte", "vPrix"]);
+  toast("Vente enregistrée.");
+}
+
+async function modifierLigne(id) {
+  const e = lignesDe(VOIR).find(x => x.id === id);
+  if (!e || !peutModifier(VOIR)) return;
+  const produit = window.prompt("Produit :", e.produit); if (produit === null) return;
+  const qte = window.prompt("Quantité :", e.quantite); if (qte === null) return;
+  const upd = { produit: produit.trim() || e.produit, quantite: Math.max(0, Math.floor(Number(qte) || 0)) };
+  if (e.type === "vente") {
+    const prix = window.prompt("Prix unitaire ($) :", e.prix_unitaire); if (prix === null) return;
+    upd.prix_unitaire = Number(prix) || 0;
+    upd.total = upd.quantite * upd.prix_unitaire;
+  }
+  const date = window.prompt("Date (AAAA-MM-JJ) :", e.date || todayISO()); if (date === null) return;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(date.trim())) upd.date = date.trim();
+  if (upd.quantite <= 0) { toast("Quantité invalide.", true); return; }
+  await db.ref(`pochons/${VOIR}/${id}`).update(upd);
+  logAudit("Pochons modifiés", `${MEMBRES[VOIR].prenom} — ${upd.produit} x${upd.quantite}`);
+  toast("Ligne modifiée.");
+}
+
+async function supprimerLigne(id) {
+  const e = lignesDe(VOIR).find(x => x.id === id);
+  if (!e || !peutModifier(VOIR)) return;
+  if (!confirm("Supprimer cette ligne ?")) return;
+  await db.ref(`pochons/${VOIR}/${id}`).remove();
+  logAudit("Pochons supprimés", `${MEMBRES[VOIR].prenom} — ${e.produit} x${e.quantite} (${e.type})`);
+  toast("Ligne supprimée.");
+}
+
+(async function () {
+  await authReady;
+  SESSION = await initShell("pochons", "Pochons");
+  if (!SESSION) return;
+  renderContent();
+  db.ref("membres").on("value", snap => { MEMBRES = snap.val() || {}; remplirMembres(); render(); });
+  db.ref("stock").on("value", snap => { STOCK = snap.val() || {}; });
+  db.ref("pochons").on("value", snap => { TOUT = snap.val() || {}; render(); });
+})();
+</script>
+</body>
+</html>
