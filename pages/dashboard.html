@@ -85,19 +85,23 @@ function fmtDuree(ms) {
   return (h ? h + "h " : "") + String(m).padStart(h ? 2 : 1, "0") + "min " + String(sec).padStart(2, "0") + "s";
 }
 
-// Une carte par action qui a un cooldown (Fleeca, Armurerie…) : compte à rebours ou « Disponible »
+// Cartes Fleeca + Armurerie (toujours affichées) et toute autre action qui a un cooldown
 function renderCooldowns() {
   const box = document.getElementById("cooldownCards");
   if (!box) return;
-  const cartes = entries(ACTIONS_DISPO).filter(([, a]) => Number(a.cooldown_min) > 0).map(([id, a]) => {
+  const fixes = ["Fleeca", "Armurerie"];
+  const liste = entries(ACTIONS_DISPO).filter(([, a]) => fixes.includes(a.nom) || Number(a.cooldown_min) > 0);
+  const cartes = liste.map(([id, a]) => {
     const c = COOLDOWNS[id];
     const reste = c && c.fin ? Math.max(0, c.fin - Date.now()) : 0;
-    return reste > 0
-      ? `<div class="card"><h3>⏳ Cooldown ${a.nom}</h3><div class="stat-num danger">${fmtDuree(reste)}</div><div class="stat-sub">lancé par ${c.par || "?"} à ${new Date(c.debut).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}</div></div>`
-      : `<div class="card"><h3>✅ ${a.nom}</h3><div class="stat-num" style="color:var(--success);">Disponible</div><div class="stat-sub">cooldown : ${a.cooldown_min} min</div></div>`;
+    if (reste > 0) return `<div class="card"><h3>⏳ Cooldown ${a.nom}</h3><div class="stat-num danger">${fmtDuree(reste)}</div><div class="stat-sub">lancé par ${c.par || "?"} à ${new Date(c.debut).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}</div></div>`;
+    const info = Number(a.cooldown_min) > 0 ? `cooldown : ${a.cooldown_min} min` : "durée à régler dans Admin → Actions";
+    return `<div class="card"><h3>✅ ${a.nom}</h3><div class="stat-num" style="color:var(--success);">Disponible</div><div class="stat-sub">${info}</div></div>`;
+  });
+  fixes.filter(n => !liste.some(([, a]) => a.nom === n)).forEach(n => {
+    cartes.push(`<div class="card"><h3>${n}</h3><div class="stat-num muted">—</div><div class="stat-sub">action « ${n} » à créer dans Admin → Actions</div></div>`);
   });
   box.innerHTML = cartes.join("");
-  box.style.display = cartes.length ? "grid" : "none";
 }
 
 function calcSolde(val) {
