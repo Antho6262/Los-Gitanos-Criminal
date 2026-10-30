@@ -17,6 +17,7 @@
 <script>
 let SESSION;
 let ACTIVE_WEEK_ID = null, ACTIONS_REF = null;
+let ACTIONS_DISPO = {}, COOLDOWNS = {};
 let DATA = { semaines: {}, argentSale: {}, argentPropre: {}, stock: {}, membres: {}, actions: {}, transactions: {} };
 let lastActionCount = null;
 
@@ -26,6 +27,7 @@ function renderContent() {
     <div class="sigil-rule"></div>
     <p class="muted small" id="weekLabel">Semaine active : —</p>
     <div id="eventBanner"></div>
+    <div class="grid cols-2 mt16" id="cooldownCards"></div>
 
     <div class="grid cols-4 mt16">
       <div class="card"><h3>Solde sale</h3><div class="stat-num" id="soldeSale">0 $</div><div class="stat-sub">argent non blanchi</div></div>
@@ -75,6 +77,27 @@ function renderStockTabs() {
           : '<tr class="empty-row"><td colspan="2">Aucun produit dans cette catégorie</td></tr>'}</tbody></table>
     </div>
   `;
+}
+
+function fmtDuree(ms) {
+  const s = Math.max(0, Math.ceil(ms / 1000));
+  const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
+  return (h ? h + "h " : "") + String(m).padStart(h ? 2 : 1, "0") + "min " + String(sec).padStart(2, "0") + "s";
+}
+
+// Une carte par action qui a un cooldown (Fleeca, Armurerie…) : compte à rebours ou « Disponible »
+function renderCooldowns() {
+  const box = document.getElementById("cooldownCards");
+  if (!box) return;
+  const cartes = entries(ACTIONS_DISPO).filter(([, a]) => Number(a.cooldown_min) > 0).map(([id, a]) => {
+    const c = COOLDOWNS[id];
+    const reste = c && c.fin ? Math.max(0, c.fin - Date.now()) : 0;
+    return reste > 0
+      ? `<div class="card"><h3>⏳ Cooldown ${a.nom}</h3><div class="stat-num danger">${fmtDuree(reste)}</div><div class="stat-sub">lancé par ${c.par || "?"} à ${new Date(c.debut).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}</div></div>`
+      : `<div class="card"><h3>✅ ${a.nom}</h3><div class="stat-num" style="color:var(--success);">Disponible</div><div class="stat-sub">cooldown : ${a.cooldown_min} min</div></div>`;
+  });
+  box.innerHTML = cartes.join("");
+  box.style.display = cartes.length ? "grid" : "none";
 }
 
 function calcSolde(val) {
@@ -148,6 +171,9 @@ function renderDerived() {
   db.ref("stock").on("value", snap => { DATA.stock = snap.val() || {}; renderDerived(); });
   db.ref("membres").on("value", snap => { DATA.membres = snap.val() || {}; renderDerived(); });
   db.ref("transactions").on("value", snap => { DATA.transactions = snap.val() || {}; renderDerived(); });
+  db.ref("actions_dispo").on("value", snap => { ACTIONS_DISPO = snap.val() || {}; renderCooldowns(); });
+  db.ref("cooldowns").on("value", snap => { COOLDOWNS = snap.val() || {}; renderCooldowns(); });
+  setInterval(renderCooldowns, 1000);
 
   db.ref("events_drogue").on("value", snap => {
     const now = Date.now();
