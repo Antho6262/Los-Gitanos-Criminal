@@ -92,6 +92,7 @@ async function initShell(activePage, pageTitle) {
     <div class="shell">
       <aside class="sidebar">
         <div class="sidebar-head">
+          <img class="sidebar-emblem" src="${root}img/logo.png" alt="LGC">
           <div class="sidebar-logo"><span class="full">LOS GITANOS<br>CRIMINAL</span></div>
         </div>
         <nav class="nav">${navHtml}</nav>

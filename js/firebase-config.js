@@ -33,7 +33,7 @@ const db = {
 /* ---------- THÈME (modifiable dans Admin → Apparence) ----------
    Stocké dans theme/{accent, fond, texte}. Une copie locale est appliquée
    tout de suite pour éviter un flash de couleurs au chargement. */
-const THEME_DEFAUT = { accent: "#e6e6e6", fond: "#000000", texte: "#ededed" };
+const THEME_DEFAUT = { accent: "#3b82ff", fond: "#000000", texte: "#e8edf7" };
 function hexToRgb(hex) {
   const m = /^#?([0-9a-f]{6})$/i.exec((hex || "").trim());
   if (!m) return null;

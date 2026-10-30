@@ -22,7 +22,7 @@ let currentTab = "semaines";
 
 /* ---------- Fonctions autonomes (n'existaient nulle part, plantaient
    silencieusement chaque action admin après l'écriture Firebase) ---------- */
-const THEME_ACCENT = () => (getComputedStyle(document.documentElement).getPropertyValue("--accent") || "").trim() || "#e6e6e6";
+const THEME_ACCENT = () => (getComputedStyle(document.documentElement).getPropertyValue("--accent") || "").trim() || "#3b82ff";
 const GRP_COLOR_STEEL = 0x6b7280;
 const GRP_COLOR_GOLD = 0xffc857;
 
@@ -373,11 +373,11 @@ async function loadTab(t) {
 
 /* ===================== APPARENCE (couleurs du site) ===================== */
 const THEME_PRESETS = {
+  "Noir & bleu (logo)": { accent: "#3b82ff", fond: "#000000", texte: "#e8edf7" },
   "Noir & blanc": { accent: "#e6e6e6", fond: "#000000", texte: "#ededed" },
   "Noir & rouge": { accent: "#e03a3a", fond: "#050000", texte: "#f0e6e6" },
   "Noir & or":    { accent: "#d4af37", fond: "#050403", texte: "#f1e9d6" },
   "Noir & vert":  { accent: "#3ddc84", fond: "#000503", texte: "#e6f0ea" },
-  "Noir & bleu":  { accent: "#4da3ff", fond: "#00040a", texte: "#e6eef8" },
   "Noir & violet":{ accent: "#b266ff", fond: "#040006", texte: "#eee6f8" },
   "Noir & orange":{ accent: "#ff8a1f", fond: "#050200", texte: "#f5ebe0" }
 };
@@ -400,7 +400,7 @@ async function tabApparence(body) {
       </div>
       <div class="row mt24" style="max-width:420px;">
         <button class="btn btn-primary" onclick="enregistrerTheme()">Enregistrer pour tout le monde</button>
-        <button class="btn" onclick="appliquerPreset('Noir & blanc')">Revenir au thème d'origine</button>
+        <button class="btn" onclick="appliquerPreset('Noir & bleu (logo)')">Revenir au thème d'origine</button>
       </div>
     </div>`;
 }

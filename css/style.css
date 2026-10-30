@@ -8,10 +8,10 @@
 
 :root{
   /* ---- réglables depuis Admin → Apparence ---- */
-  --accent: #e6e6e6;
-  --accent-rgb: 230,230,230;
+  --accent: #3b82ff;
+  --accent-rgb: 59,130,255;
   --bg-0: #000000;
-  --text: #ededed;
+  --text: #e8edf7;
 
   /* ---- dérivées automatiquement ---- */
   --steel: var(--accent);
@@ -42,6 +42,12 @@ body{
   color:var(--text);
   min-height:100vh;
 }
+/* logo en filigrane sur tout le site */
+body::before{
+  content:""; position:fixed; inset:0; z-index:-1; pointer-events:none;
+  background:url("../img/logo.png") center 52% / min(78vmin, 720px) no-repeat;
+  mix-blend-mode:screen; opacity:.13;
+}
 a{color:inherit;text-decoration:none;}
 button, input, select, textarea{font-family:var(--font-body); color:var(--text);}
 ::selection{background:rgba(var(--accent-rgb), .35); color:var(--text);}
@@ -55,7 +61,7 @@ h1{font-size:clamp(24px,3vw,32px); font-weight:700; color:var(--accent);}
 }
 
 /* ---------- CONNEXION ---------- */
-.login-wrap{min-height:100vh; display:flex; align-items:center; justify-content:center; padding:24px;}
+.login-wrap{min-height:100vh; display:flex; flex-direction:column; align-items:center; justify-content:center; padding:24px;}
 .login-card{
   width:100%; max-width:400px;
   background:var(--bg-1);
@@ -67,7 +73,7 @@ h1{font-size:clamp(24px,3vw,32px); font-weight:700; color:var(--accent);}
 .login-brand{
   text-align:center; margin-bottom:6px;
   font-family:var(--font-display); font-weight:700;
-  font-size:28px; letter-spacing:.1em; line-height:1.15; color:var(--accent);
+  font-size:24px; letter-spacing:.08em; line-height:1.15; color:var(--accent);
 }
 .login-sub{text-align:center; color:var(--text-dim); font-size:11px; letter-spacing:.3em; text-transform:uppercase; margin-bottom:10px;}
 .login-card .sigil-rule{margin:12px 0 24px;}
@@ -102,7 +108,9 @@ h1{font-size:clamp(24px,3vw,32px); font-weight:700; color:var(--accent);}
   border-right:1px solid var(--line);
   display:flex; flex-direction:column; position:sticky; top:0; height:100vh;
 }
-.sidebar-head{padding:24px 18px 18px; border-bottom:1px solid var(--line); text-align:center;}
+.sidebar-head{padding:18px 14px 16px; border-bottom:1px solid var(--line); text-align:center;}
+.sidebar-emblem{display:block; width:100%; max-width:170px; margin:0 auto 8px; mix-blend-mode:screen;}
+.login-emblem{display:block; width:min(300px, 70vw); margin:0 auto 14px; mix-blend-mode:screen;}
 .sidebar-logo{font-family:var(--font-display); font-weight:700; color:var(--accent); font-size:19px; letter-spacing:.1em; line-height:1.2; text-transform:uppercase;}
 .sidebar-logo small{display:block; font-family:var(--font-body); font-weight:500; color:var(--text-dim); font-size:10px; letter-spacing:.2em; margin-top:5px;}
 .nav{flex:1; overflow-y:auto; padding:12px 10px;}
@@ -146,7 +154,7 @@ h1{font-size:clamp(24px,3vw,32px); font-weight:700; color:var(--accent);}
 @media (max-width:680px){
   .cols-2,.cols-3,.cols-4{grid-template-columns:1fr;}
   .sidebar{width:74px;} .sidebar-logo, .nav-item .lbl, .who, .sidebar-foot{display:none;}
-  .sidebar-head{padding:18px 0;} .content{padding:20px 14px 60px;} .topbar{padding:14px;}
+  .sidebar-head{padding:12px 0;} .sidebar-emblem{max-width:56px; margin:0 auto;} .content{padding:20px 14px 60px;} .topbar{padding:14px;}
 }
 .card{background:var(--bg-1); border:1px solid var(--line); border-radius:var(--radius); padding:20px; position:relative; overflow:hidden;}
 .card::before{content:""; position:absolute; top:0; left:0; right:0; height:2px; background:linear-gradient(90deg, var(--accent), transparent 70%); opacity:.7;}
