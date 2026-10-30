@@ -12,7 +12,7 @@ Le site utilise le projet Firebase existant (`js/firebase-config.js`). Toutes se
 Chaque membre gère les siens : pochons pris, vendus, restant, chiffre d'affaires, détail par produit, historique modifiable. Tout le monde voit les autres, seul le propriétaire (ou un admin) modifie.
 
 ## Cooldown
-Admin → Actions → colonne « Cooldown (min) » : durée en minutes pour chaque action (ex. Fleeca, Armurerie). 0 = aucun. Le Tracker affiche le compte à rebours et bloque la saisie ; un admin peut passer outre.
+Fleeca et Armurerie : 2 braquages maximum par semaine glissante, chacun se libère 7 jours après son enregistrement (réussite ou échec). Affiché sur le Dashboard, et le Tracker bloque la saisie quand il n'y en a plus de disponible (un admin peut passer outre). Réglable par action dans Admin → Actions (colonne « Cooldown »).
 
 ## Couleurs
 Admin → Apparence : couleur principale, fond, texte, thèmes prêts à l'emploi. Enregistrer l'applique à tous.

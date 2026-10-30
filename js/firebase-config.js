@@ -171,6 +171,38 @@ function toast(msg, isErr) {
 }
 
 
+/* ---------- COOLDOWN DES BRAQUAGES ----------
+   Règle (comme sur les autres sites) : X braquages maximum sur une période glissante de N jours ;
+   chaque braquage (réussite OU échec) se libère exactement N jours après son enregistrement.
+   Fleeca et Armurerie : 2 par 7 jours par défaut. Réglable par action dans Admin → Actions
+   (champs cooldown_max / cooldown_jours). `arbre` = snapshot complet du nœud "actions" (toutes les semaines). */
+const COOLDOWN_DEFAUT = { "Fleeca": { max: 2, jours: 7 }, "Armurerie": { max: 2, jours: 7 } };
+function cooldownConfig(act) {
+  if (!act) return null;
+  const d = COOLDOWN_DEFAUT[act.nom] || {};
+  const jours = Number(act.cooldown_jours) || d.jours || 0;
+  if (jours <= 0) return null;
+  return { jours, max: Number(act.cooldown_max) || d.max || 1 };
+}
+function cooldownEtat(actionId, act, arbre) {
+  const cfg = cooldownConfig(act);
+  if (!cfg) return null;
+  const now = Date.now(), duree = cfg.jours * 86400000;
+  const actifs = [];
+  Object.values(arbre || {}).forEach(semaine => Object.values(semaine || {}).forEach(e => {
+    if (e && e.action_id === actionId && e.createdAt && e.createdAt + duree > now) actifs.push(e.createdAt);
+  }));
+  actifs.sort((a, b) => a - b);
+  const libres = Math.max(0, cfg.max - actifs.length);
+  return { ...cfg, libres, liberations: actifs.map(x => x + duree),
+           prochain: libres > 0 ? null : actifs[actifs.length - cfg.max] + duree };
+}
+function fmtReste(ms) {
+  ms = Math.max(0, ms);
+  const j = Math.floor(ms / 86400000), h = Math.floor((ms % 86400000) / 3600000), m = Math.floor((ms % 3600000) / 60000), s = Math.floor((ms % 60000) / 1000);
+  return (j ? j + "j " : "") + String(h).padStart(2, "0") + "h " + String(m).padStart(2, "0") + "m " + String(s).padStart(2, "0") + "s";
+}
+
 /* Ajuste un stock de façon atomique (évite les pertes quand 2 membres agissent en même temps). */
 function adjustStock(path, delta) {
   return db.ref(path).transaction(v => Math.max(0, (Number(v) || 0) + Number(delta)));

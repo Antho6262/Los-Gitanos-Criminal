@@ -946,14 +946,15 @@ async function tabActions(body) {
       </div>
       <div class="row mt8">
         <div><label class="l">Quota par défaut / semaine (optionnel)</label><input type="number" id="aQuotaDefaut" placeholder="ex: 10" value="0"></div>
-        <div><label class="l">Cooldown (minutes, 0 = aucun)</label><input type="number" id="aCooldown" placeholder="ex: 120" value="0" min="0"></div>
+        <div><label class="l">Cooldown : nombre max (ex: 2)</label><input type="number" id="aCooldownMax" placeholder="ex: 2" value="0" min="0"></div>
+        <div><label class="l">… par période de (jours, 0 = aucun)</label><input type="number" id="aCooldownJours" placeholder="ex: 7" value="0" min="0"></div>
       </div>
       <p class="small muted mt8">Soit une recette fixe (toujours le même produit, ex: ATM → Boîtier de piratage), soit une catégorie « variable » où le membre choisit le produit exact en saisissant l'action (ex: Vente de Drogue → quelle drogue, ou Récolte de Champignons → quel champignon). Le quota par défaut s'applique à chaque membre dans Admin → Quotas (modifiable individuellement ensuite).</p>
       <button class="btn btn-primary mt16" onclick="creerAction()">Créer l'action</button>
     </div>
     <div class="panel">
       <div class="panel-head"><h2>Actions disponibles</h2></div>
-      <table><thead><tr><th>Nom</th><th>$ sale/u</th><th>$ propre/u</th><th>Stock</th><th>Cooldown (min)</th><th></th></tr></thead>
+      <table><thead><tr><th>Nom</th><th>$ sale/u</th><th>$ propre/u</th><th>Stock</th><th>Cooldown (max / jours)</th><th></th></tr></thead>
         <tbody>${actions.length ? actions.map(a => {
           const catVar = a.cat_variable ? cats.find(c => c.id === a.cat_variable) : null;
           const recetteTxt = (a.recipe || []).map(r => {
@@ -963,7 +964,7 @@ async function tabActions(body) {
           }).join(", ");
           return `<tr><td>${a.nom}</td><td>${formatMoney(a.montant_sale || 0)}</td><td>${formatMoney(a.montant_propre || 0)}</td>
           <td class="small">${catVar ? `Produit choisi (${catVar.emoji || ""} ${catVar.nom}) ${a.production ? '<span class="badge badge-ok">+ récolte</span>' : '<span class="badge">- vente</span>'}` : (recetteTxt || "—")}</td>
-          <td><input type="number" min="0" value="${a.cooldown_min || 0}" style="width:90px;" onchange="majCooldownAction('${a.id}', this.value)"></td>
+          <td style="white-space:nowrap;">${(() => { const c = cooldownConfig(a) || { max: 0, jours: 0 }; return `<input type="number" min="0" value="${c.max}" style="width:64px;" id="cdMax_${a.id}" onchange="majCooldownAction('${a.id}')"> / <input type="number" min="0" value="${c.jours}" style="width:64px;" id="cdJours_${a.id}" onchange="majCooldownAction('${a.id}')"> j`; })()}</td>
           <td><span class="btn btn-sm btn-danger" onclick="suppAction('${a.id}')">Suppr.</span></td></tr>`;
         }).join("") : '<tr class="empty-row"><td colspan="6">Aucune action définie</td></tr>'}</tbody></table>
     </div>
@@ -1030,7 +1031,8 @@ async function creerAction() {
     cat_variable: document.getElementById("aCatVariable").value || null,
     production: document.getElementById("aProduction").checked,
     quota_defaut: Number(document.getElementById("aQuotaDefaut").value) || 0,
-    cooldown_min: Number(document.getElementById("aCooldown").value) || 0
+    cooldown_max: Number(document.getElementById("aCooldownMax").value) || 0,
+    cooldown_jours: Number(document.getElementById("aCooldownJours").value) || 0
   });
   RECIPE_LINES = [];
   logAudit("Action créée", nom);
@@ -1070,9 +1072,9 @@ async function importerActionsGroupe() {
     cambu: { nom: "Cambu", montant_sale: 0, montant_propre: 0, recipe: [{ catId: "materiel_cat", prodId: "crochetage", qty: 1 }] },
     superette: { nom: "Supérette", montant_sale: 0, montant_propre: 0, recipe: [], quota_defaut: 10 },
     gofast: { nom: "Go Fast", montant_sale: 0, montant_propre: 0, recipe: [], quota_defaut: 8 },
-    fleeca: { nom: "Fleeca", montant_sale: 0, montant_propre: 0, quota_defaut: 6,
+    fleeca: { nom: "Fleeca", montant_sale: 0, montant_propre: 0, quota_defaut: 6, cooldown_max: 2, cooldown_jours: 7,
       recipe: [{ catId: "materiel_cat", prodId: "carte_fleeca", qty: 1 }, { catId: "materiel_cat", prodId: "perceuse", qty: 1 }] },
-    armurerie: { nom: "Armurerie", montant_sale: 0, montant_propre: 0, quota_defaut: 8,
+    armurerie: { nom: "Armurerie", montant_sale: 0, montant_propre: 0, quota_defaut: 8, cooldown_max: 2, cooldown_jours: 7,
       recipe: [{ catId: "materiel_cat", prodId: "pistolet_artisanal", qty: 1 }] },
     vente_drogue: { nom: "Vente de Drogue", montant_sale: 0, montant_propre: 0, recipe: [], cat_variable: "drogue_cat" }
   });
@@ -1090,12 +1092,12 @@ async function importerActionsGroupe() {
   logAudit("Actions Los Gitanos Criminal importées", "superette, gofast, fleeca, armurerie, labo");
   loadTab("actions");
 }
-async function majCooldownAction(id, val) {
-  const min = Math.max(0, Number(val) || 0);
-  await db.ref("actions_dispo/" + id + "/cooldown_min").set(min);
-  if (min === 0) await db.ref("cooldowns/" + id).remove();
-  logAudit("Cooldown modifié", id + " → " + min + " min");
-  toast(min ? "Cooldown réglé à " + min + " min." : "Cooldown désactivé.");
+async function majCooldownAction(id) {
+  const max = Math.max(0, Number(document.getElementById("cdMax_" + id).value) || 0);
+  const jours = Math.max(0, Number(document.getElementById("cdJours_" + id).value) || 0);
+  await db.ref("actions_dispo/" + id).update({ cooldown_max: max, cooldown_jours: jours });
+  logAudit("Cooldown modifié", `${id} → ${max} max / ${jours} jours`);
+  toast(jours ? `Cooldown : ${max} max par ${jours} jours.` : "Cooldown désactivé (Fleeca/Armurerie : règle par défaut 2 / 7 jours).");
 }
 async function suppAction(id) { if (confirm("Supprimer cette action ?")) { await db.ref("actions_dispo/" + id).remove(); logAudit("Action supprimée", id); loadTab("actions"); } }
 

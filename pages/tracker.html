@@ -15,7 +15,7 @@
 <script src="../js/firebase-config.js"></script>
 <script src="../js/app.js"></script>
 <script>
-let SESSION, ACTIVE_WEEK = null, VIEW_WEEK = null, ALL_SEMAINES = [], MEMBRES = {}, ACTIONS_DISPO = {}, STOCK = {}, GRADES_MASQUES = new Set(), EVENT_ACTIF = null, COOLDOWNS = {};
+let SESSION, ACTIVE_WEEK = null, VIEW_WEEK = null, ALL_SEMAINES = [], MEMBRES = {}, ACTIONS_DISPO = {}, STOCK = {}, GRADES_MASQUES = new Set(), EVENT_ACTIF = null, ARBRE_ACTIONS = {};
 
 function majSemaines(snap) {
   ALL_SEMAINES = entries(snap.val()).map(([id, s]) => ({ id, ...s })).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
@@ -145,30 +145,21 @@ function onActionChange() {
   autoFillMontants();
 }
 
-function fmtDuree(ms) {
-  const s = Math.max(0, Math.ceil(ms / 1000));
-  const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
-  return (h ? h + "h " : "") + String(m).padStart(h ? 2 : 1, "0") + "min " + String(sec).padStart(2, "0") + "s";
-}
-
-// Cooldown restant (ms) pour l'action choisie, 0 si aucun
-function cooldownRestant(actionId) {
-  const c = COOLDOWNS[actionId];
-  return c && c.fin ? Math.max(0, c.fin - Date.now()) : 0;
-}
-
 function renderCooldown() {
   const box = document.getElementById("cooldownBanner");
   if (!box) return;
   const sel = document.getElementById("fAction");
   const act = sel ? ACTIONS_DISPO[sel.value] : null;
-  const reste = act ? cooldownRestant(sel.value) : 0;
-  if (!reste) { box.innerHTML = ""; return; }
-  const c = COOLDOWNS[sel.value];
+  const et = act ? cooldownEtat(sel.value, act, ARBRE_ACTIONS) : null;
+  if (!et) { box.innerHTML = ""; return; }
+  if (et.libres > 0) {
+    box.innerHTML = `<div style="margin:10px 0;padding:10px 18px;border-radius:6px;background:rgba(111,174,125,0.12);border:1px solid var(--success);text-align:center;">
+      ✅ <strong>${act.nom}</strong> — ${et.libres}/${et.max} disponible${et.libres > 1 ? "s" : ""} <span class="muted small">(${et.max} max par ${et.jours} jours)</span></div>`;
+    return;
+  }
   box.innerHTML = `<div style="margin:10px 0;padding:12px 18px;border-radius:6px;background:rgba(196,30,34,0.15);border:2px solid #c41e22;text-align:center;">
-    ⏳ <strong style="color:#ff6b6b">COOLDOWN ${act.nom.toUpperCase()}</strong> — encore <strong style="color:var(--gold)">${fmtDuree(reste)}</strong>
-    <span class="muted small">(lancé par ${c.par || "?"} à ${new Date(c.debut).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })})</span>
-  </div>`;
+    ⏳ <strong style="color:#ff6b6b">COOLDOWN ${act.nom.toUpperCase()}</strong> — prochain dans <strong style="color:var(--accent)">${fmtReste(et.prochain - Date.now())}</strong>
+    <span class="muted small">(${et.max} max par ${et.jours} jours)</span></div>`;
 }
 
 function estActionEquipe() {
@@ -253,10 +244,11 @@ async function ajouterAction() {
   if (!m || !act || qte <= 0) { toast("Complétez le formulaire.", true); return; }
   if (act.cat_variable && !document.getElementById("fProduitVar").value) { toast("Choisissez un produit.", true); return; }
 
-  const reste = cooldownRestant(actionId);
-  if (reste > 0) {
-    if (SESSION.role !== "admin") { toast(`Cooldown ${act.nom} en cours : encore ${fmtDuree(reste)}.`, true); return; }
-    if (!confirm(`Cooldown ${act.nom} en cours (encore ${fmtDuree(reste)}). Enregistrer quand même ?`)) return;
+  const et = cooldownEtat(actionId, act, ARBRE_ACTIONS);
+  if (et && et.libres === 0) {
+    const txt = `Cooldown ${act.nom} : prochain dans ${fmtReste(et.prochain - Date.now())}.`;
+    if (SESSION.role !== "admin") { toast(txt, true); return; }
+    if (!confirm(txt + " Enregistrer quand même ?")) return;
   }
 
   let participantsIds = [];
@@ -284,11 +276,6 @@ async function ajouterAction() {
     entry.produit_drogue_id = pid;
   }
   await db.ref("actions/" + ACTIVE_WEEK.id + "/" + uid()).set(entry);
-  const cdMin = Number(act.cooldown_min) || 0;
-  if (cdMin > 0) {
-    const debut = Date.now();
-    await db.ref("cooldowns/" + actionId).set({ debut, fin: debut + cdMin * 60000, par: m.prenom, membre_id: membreId });
-  }
 
   const erreurs = [];
   const essayer = async (nom, fn) => { try { await fn(); } catch (e) { console.error(nom, e); erreurs.push(nom + " : " + (e && e.message ? e.message : e)); } };
@@ -448,7 +435,7 @@ async function supprimerAction(id) {
 
   db.ref("semaines").on("value", majSemaines);
 
-  db.ref("cooldowns").on("value", snap => { COOLDOWNS = snap.val() || {}; renderCooldown(); });
+  db.ref("actions").on("value", snap => { ARBRE_ACTIONS = snap.val() || {}; renderCooldown(); });
   setInterval(renderCooldown, 1000);
 
   db.ref("events_drogue").on("value", snap => {
