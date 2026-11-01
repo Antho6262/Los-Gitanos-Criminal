@@ -309,13 +309,19 @@ function prochainesBornes(derniere) {
   const fin = parisWallToUTC(dimSuivant.year, dimSuivant.month, dimSuivant.day, 19, 0, 0);
   return { debut, fin, verrouAt: fin };
 }
+/* Vrai seulement si une semaine existe VRAIMENT pour ce créneau (un index resté après une suppression ne compte pas). */
+async function creneauDejaPris(idxRef) {
+  const idx = await idxRef.once("value");
+  if (!idx.exists()) return false;
+  const sem = await db.ref("semaines/" + idx.val()).once("value");
+  return sem.exists();
+}
 /* Ouvre la semaine suivante après un blocage manuel, avec protection anti-doublon
    (même mécanisme d'index que le bot Discord). */
 async function creerSemaineSuivante(derniere) {
   const bounds = prochainesBornes(derniere);
   const idxRef = db.ref("semaine_index/" + bounds.debut);
-  const existe = await idxRef.once("value");
-  if (existe.exists()) { console.log("Semaine suivante déjà créée par ailleurs."); return; }
+  if (await creneauDejaPris(idxRef)) { console.log("Semaine suivante déjà créée par ailleurs."); return; }
   const id = uid();
   const nom = nomAutoSemaine(bounds.debut, bounds.fin);
   await idxRef.set(id);
@@ -482,8 +488,7 @@ async function creerSemaine() {
   const bounds = prochainesBornes(derniere);
 
   const idxRef = db.ref("semaine_index/" + bounds.debut);
-  const existeSnap = await idxRef.once("value");
-  if (existeSnap.exists()) {
+  if (await creneauDejaPris(idxRef)) {
     toast("Cette semaine existe déjà.", true);
     loadTab("semaines");
     return;
@@ -507,8 +512,10 @@ async function toggleSemaine(id, bloquee) {
 }
 async function suppSemaine(id) {
   if (!confirm("Supprimer cette semaine et toutes ses actions ?")) return;
+  const sem = (await db.ref("semaines/" + id).once("value")).val();
   await db.ref("semaines/" + id).remove();
   await db.ref("actions/" + id).remove();
+  if (sem && sem.debut) await db.ref("semaine_index/" + sem.debut).remove(); // libère le créneau pour pouvoir la recréer
   logAudit("Semaine supprimée", id);
   loadTab("semaines");
 }
